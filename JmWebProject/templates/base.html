@@ -91,6 +91,8 @@
             <nav style="margin-left: 20px;">
                 <a href="{% url 'index' %}">首页</a>
                 {% if user.is_authenticated %}
+                    <a href="{% url 'search' %}">在线搜索</a>
+                    <a href="{% url 'jm_album_list' %}">JM 藏书阁</a>
                     <a href="{% url 'local_media' %}">本地资源</a>
                 {% endif %}
             </nav>

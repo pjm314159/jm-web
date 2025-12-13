@@ -15,8 +15,7 @@ import re
 import datetime
 from .models import Album, Photo
 from .tasks import sanitize_filename  # 复用 tasks 中的清洗函数，确保路径一致
-from jmcomic import JmcomicClient,JmSearchPage, JmcomicText,JmOption # 修正 jmcomic 导入
-from .models import Album
+from jmcomic import JmSearchPage, JmcomicText,JmOption # 修正 jmcomic 导入
 from .tasks import crawl_jm_task
 from .utils import parse_jm_input
 
@@ -111,13 +110,12 @@ def album_delete_view(request, pk):
 @login_required
 def jm_photo_detail_view(request, pk):
     """
-    章节阅读器：展示图片流，计算上一章/下一章
+    章节阅读器：支持分页（每页300张）和跳转
     """
     photo = get_object_or_404(Photo, pk=pk)
     album = photo.album
 
-    # --- 步骤 A: 读取本地图片文件 ---
-    # photo.save_path 是相对路径，例如: images/jmcomic/AlbumName/PhotoName
+    # --- 1. 读取本地文件列表 ---
     if photo.save_path:
         full_dir_path = os.path.join(settings.MEDIA_ROOT, photo.save_path)
     else:
@@ -127,34 +125,55 @@ def jm_photo_detail_view(request, pk):
     if os.path.exists(full_dir_path) and os.path.isdir(full_dir_path):
         # 获取所有图片文件
         files = [f for f in os.listdir(full_dir_path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif'))]
-
-        # 自然排序 (1.jpg, 2.jpg, 10.jpg...)
+        # 自然排序
         files.sort(key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x)])
 
-        # 构造完整 URL
+        # 构造 URL
         for f in files:
-            # 拼接: /media/ + images/jmcomic/.../1.jpg
-            # replace('\\', '/') 是为了兼容 Windows 路径分隔符
             url = os.path.join(settings.MEDIA_URL, photo.save_path, f).replace('\\', '/')
             image_files.append(url)
 
-    # --- 步骤 B: 计算上一章 / 下一章 ---
-    # 获取同本子下所有的章节
+    total_images = len(image_files)
+
+    # --- 2. 分页逻辑 (每页 300 张) ---
+    IMAGES_PER_PAGE = 300
+    paginator = Paginator(image_files, IMAGES_PER_PAGE)
+
+    # 获取 URL 参数
+    page_number = request.GET.get('page', 1)
+    target_jump_index = request.GET.get('target', None)  # 目标图片序号 (用于 JS 滚动)
+
+    # 如果用户请求的是 target (直接跳转某张图)，我们需要计算它在哪一页
+    if target_jump_index:
+        try:
+            target_idx = int(target_jump_index)
+            # 计算页码： (索引-1) // 300 + 1
+            calculated_page = (target_idx - 1) // IMAGES_PER_PAGE + 1
+            page_number = calculated_page
+        except ValueError:
+            pass
+
+    page_obj = paginator.get_page(page_number)
+
+    # 计算当前页第一张图片在全局的序号 (例如第2页第一张是 #301)
+    # page_obj.start_index() 返回的是 1-based 索引
+    current_start_index = page_obj.start_index() if page_obj.start_index() else 1
+
+    # --- 3. 上一章 / 下一章 ---
     siblings = Photo.objects.filter(album=album).order_by('sort_index')
-
-    # 逻辑：查找 sort_index 比当前小(大)的章节中，最靠近的一个
-
-    # 上一章：序号比当前小，倒序取第一个
     prev_photo = siblings.filter(sort_index__lt=photo.sort_index).last()
-
-    # 下一章：序号比当前大，正序取第一个
     next_photo = siblings.filter(sort_index__gt=photo.sort_index).first()
 
     context = {
         'photo': photo,
-        'image_files': image_files,
+        'page_obj': page_obj,  # 分页对象
+        'image_files': page_obj.object_list,  # 当前页的图片列表
+        'total_images': total_images,  # 总图片数
+        'current_start_index': current_start_index,  # 当前页起始序号
         'prev_photo': prev_photo,
         'next_photo': next_photo,
+        'target_jump_index': target_jump_index,  # 传给模板做 JS 滚动
+        'images_per_page': IMAGES_PER_PAGE,
     }
     return render(request, 'comic/jm_photo_detail.html', context)
 
@@ -187,28 +206,6 @@ def start_crawl_view(request):
         'message': f'任务已提交: {jm_type} - {jm_id}',
         'task_id': task.id
     })
-
-# ----------------------------------------------------
-# 模块三：爬取内容展示
-# ----------------------------------------------------
-
-
-@login_required
-def album_detail_view(request, pk):
-    album = get_object_or_404(Album, pk=pk, is_downloaded=True)
-    full_path = os.path.join(settings.MEDIA_ROOT, album.download_path)
-    image_files = []
-
-    if os.path.isdir(full_path):
-        files = sorted(os.listdir(full_path),
-                       key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x)])
-        for filename in files:
-            if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-                relative_url = os.path.join(settings.MEDIA_URL, album.download_path, filename).replace(os.path.sep, '/')
-                image_files.append(relative_url)
-
-    context = {'album': album, 'image_files': image_files}
-    return render(request, 'comic/album_detail.html', context)
 
 
 # ----------------------------------------------------

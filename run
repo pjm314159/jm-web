@@ -1,7 +1,0 @@
-
-cd JmWebProject
-celery -A JmWebProject worker --loglevel=info --pool=solo
-
-
-cd JmWebProject
-python manage.py runserver 7000
