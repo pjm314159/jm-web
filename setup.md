@@ -1,13 +1,13 @@
 # how to setup
 ### Begin
 ```bash
-git clone 
+git clone https://github.com/pjm314159/jm-web
 pip install -r requirement.txt
 ```
 ### First
 migrations
 ```bash
-cd JmWebProjecr
+cd JmWebProject
 python manage.py makemigrations user 
 python manage.py makemigrations comic
 python manage.py migrate
@@ -19,7 +19,7 @@ run Celery<br>
 first console
 ```bash
 cd JmWebProject
-celery -A JmWebProject worker --loglevel=info --pool=solo
+celery -A JmWebProject worker --loglevel=info --pool=threads
 ```
 ### Fourth
 second console
