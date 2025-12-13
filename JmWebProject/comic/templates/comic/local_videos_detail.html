@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}{{ folder_name }} - 视频浏览{% endblock %}
+
+{% block content %}
+<div style="padding: 20px;">
+    <div style="margin-bottom: 20px;">
+        <a href="{% url 'local_media' %}">⬅ 返回本地资源库</a>
+        <h2>🎬 {{ folder_name }} <span style="font-size: 0.6em; color: #666;">({{ count }} 个)</span></h2>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
+        {% for file in files %}
+        <div style="background: #000; border-radius: 8px; overflow: hidden;">
+            <video controls width="100%" height="auto" preload="metadata">
+                <source src="{{ file.url }}" type="video/mp4">
+                您的浏览器不支持 HTML5 视频。
+            </video>
+            <div style="padding: 10px; background: #fff;">
+                <p style="margin: 0; word-break: break-all;">{{ file.name }}</p>
+            </div>
+        </div>
+        {% empty %}
+            <p>该文件夹下没有视频文件。</p>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

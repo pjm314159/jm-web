@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}本地资源库{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>📂 本地资源库</h1>
+
+    <div class="section">
+        <h3>📸 图片相册 (Media/Images/Local)</h3>
+        {% if image_albums %}
+            <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+                {% for album in image_albums %}
+                <div style="width: 200px; border: 1px solid #ddd; padding: 10px; border-radius: 8px; text-align: center;">
+                    <a href="{% url 'local_media_detail' type='images' folder_name=album.folder_name %}">
+                        <div style="width: 100%; height: 150px; background-color: #f0f0f0; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 10px;">
+                            {% if album.cover_url %}
+                                <img src="{{ album.cover_url }}" style="width: 100%; height: 100%; object-fit: cover;">
+                            {% else %}
+                                <span style="font-size: 30px;">🖼️</span>
+                            {% endif %}
+                        </div>
+                        <strong style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ album.name }}</strong>
+                        <span style="color: #666; font-size: 0.9em;">{{ album.count }} 张图片</span>
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p style="color: #888;">暂无本地相册，请在 media/images/local/ 下创建文件夹。</p>
+        {% endif %}
+    </div>
+
+    <hr>
+
+    <div class="section">
+        <h3>🎬 视频合集 (Media/Videos)</h3>
+        {% if video_folders %}
+            <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+                {% for folder in video_folders %}
+                <div style="width: 200px; border: 1px solid #ddd; padding: 10px; border-radius: 8px; text-align: center; background-color: #f9f9f9;">
+                    <a href="{% url 'local_media_detail' type='videos' folder_name=folder.folder_name %}">
+                        <div style="width: 100%; height: 100px; display: flex; align-items: center; justify-content: center;">
+                            <span style="font-size: 40px;">▶️</span>
+                        </div>
+                        <strong>{{ folder.name }}</strong>
+                        <br>
+                        <span style="color: #666; font-size: 0.9em;">{{ folder.count }} 个视频</span>
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p style="color: #888;">暂无视频文件夹，请在 media/videos/ 下创建文件夹。</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

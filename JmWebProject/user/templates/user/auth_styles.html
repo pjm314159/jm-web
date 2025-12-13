@@ -1,0 +1,109 @@
+<style>
+    /* 认证页面专用样式 */
+
+    /* 覆盖 base.html 的 content 样式，使其全屏居中 */
+    .content {
+        background: transparent !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .auth-container {
+        min-height: 80vh; /* 占据大部分屏幕高度 */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: var(--bg-color);
+    }
+
+    .auth-card {
+        background: white;
+        width: 100%;
+        max-width: 400px; /* 卡片最大宽度 */
+        padding: 2.5rem;
+        border-radius: 16px;
+        box-shadow: var(--shadow-md);
+    }
+
+    .auth-title {
+        text-align: center;
+        font-size: 1.8rem;
+        margin-bottom: 0.5rem;
+        color: var(--text-main);
+    }
+
+    .auth-subtitle {
+        text-align: center;
+        color: var(--text-sub);
+        margin-bottom: 2rem;
+        font-size: 0.95rem;
+    }
+
+    .form-group {
+        margin-bottom: 1.2rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+        color: var(--text-main);
+        font-size: 0.9rem;
+    }
+
+    /* 美化所有输入框 */
+    .form-group input {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 1rem;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        box-sizing: border-box; /* 防止 padding 撑破宽度 */
+    }
+
+    .form-group input:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .btn-block {
+        width: 100%;
+        justify-content: center;
+        padding: 0.8rem;
+        font-size: 1rem;
+        margin-top: 1rem;
+    }
+
+    .error-banner {
+        background-color: #fef2f2;
+        color: var(--danger-color);
+        padding: 0.75rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+        text-align: center;
+        border: 1px solid #fee2e2;
+    }
+
+    .auth-footer {
+        margin-top: 2rem;
+        text-align: center;
+        font-size: 0.9rem;
+        color: var(--text-sub);
+    }
+
+    .auth-footer a {
+        color: var(--primary-color);
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .auth-footer a:hover {
+        text-decoration: underline;
+    }
+</style>

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}{{ folder_name }} - 图片浏览{% endblock %}
+
+{% block content %}
+<div style="padding: 20px;">
+    <div style="margin-bottom: 20px;">
+        <a href="{% url 'local_media' %}">⬅ 返回本地资源库</a>
+        <h2>🖼️ {{ folder_name }} <span style="font-size: 0.6em; color: #666;">({{ count }} 张 | 共 {{ total_pages }} 页)</span></h2>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: #eee; padding: 10px; border-radius: 5px; position: sticky; top: 0; z-index: 100;">
+        <div class="pagination">
+            {% if page_obj.has_previous %}
+                <a href="?page={{ page_obj.previous_page_number }}" style="margin-right: 10px;">上一页</a>
+            {% endif %}
+            <span style="font-weight: bold;">第 {{ page_obj.number }} / {{ total_pages }} 页</span>
+            {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}" style="margin-left: 10px;">下一页</a>
+            {% endif %}
+        </div>
+
+        <form id="jump-form" method="get" action="" style="margin: 0;">
+            <label for="jump-input">跳转至第</label>
+            <input type="number" id="jump-input" name="jump"
+                   min="1" max="{{ count }}" required
+                   style="width: 60px; text-align: center;">
+            <label for="jump-input">张</label>
+            <button type="submit">跳转</button>
+        </form>
+    </div>
+
+    <div style="display: flex; flex-direction: column; align-items: center;">
+        {% for file in files %}
+            {# 计算当前图片的绝对序号：当前页起始序号 + 循环偏移量 #}
+            {% with curr_index=start_index|add:forloop.counter0 %}
+
+            <div id="img-{{ curr_index }}" style="max-width: 1000px; width: 100%; margin-bottom: 0; position: relative;">
+                <img src="{{ file.url }}"
+                     loading="lazy"
+                     style="width: 100%; height: auto; display: block;">
+
+                <span style="position: absolute; top: 0; right: 0; background: rgba(0,0,0,0.5); color: white; padding: 2px 5px; font-size: 12px; pointer-events: none;">
+                    #{{ curr_index }}
+                </span>
+            </div>
+
+            {% endwith %}
+        {% endfor %}
+    </div>
+
+    <div style="text-align: center; margin-top: 20px; padding-bottom: 50px;">
+        <div class="pagination">
+            {% if page_obj.has_previous %}
+                <a href="?page={{ page_obj.previous_page_number }}" style="margin-right: 10px;">上一页</a>
+            {% endif %}
+            <span style="font-weight: bold;">第 {{ page_obj.number }} 页</span>
+            {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}" style="margin-left: 10px;">下一页</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // 获取后端传递的目标索引
+        const targetIndex = "{{ target_jump_index }}";
+
+        if (targetIndex && targetIndex !== 'None') {
+            const targetId = "img-" + targetIndex;
+            const element = document.getElementById(targetId);
+
+            if (element) {
+                // 滚动到该元素
+                element.scrollIntoView({
+                    behavior: 'smooth', // 平滑滚动
+                    block: 'start'      // 滚动到视口顶部
+                });
+                // 可选：给个高亮闪烁效果，提示用户是这张图
+                element.style.border = "2px solid red";
+                setTimeout(() => { element.style.border = "none"; }, 2000);
+            } else {
+                console.warn("未找到目标图片元素:", targetId);
+            }
+        }
+    });
+</script>
+{% endblock %}

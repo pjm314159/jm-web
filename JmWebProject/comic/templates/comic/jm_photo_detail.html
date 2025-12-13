@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}{{ photo.name }} - {{ photo.album.name }}{% endblock %}
+
+{% block content %}
+<div class="reader-wrapper">
+
+    <div id="reader-header" class="reader-bar reader-header visible">
+        <a href="{% url 'album_detail' pk=photo.album.pk %}" class="btn btn-sm btn-outline-light">
+            ← 返回目录
+        </a>
+        <span class="reader-title">{{ photo.name }}</span>
+        <div style="width: 80px;"></div>
+    </div>
+
+    <div id="touch-layer" class="image-stream">
+        {% for img_url in image_files %}
+        <div class="img-wrapper">
+            <img src="{{ img_url }}" loading="lazy" alt="P-{{ forloop.counter }}">
+        </div>
+        {% empty %}
+            <div class="error-box">
+                <h3>⚠️ 无法加载图片</h3>
+                <p>文件夹为空，或者图片尚未下载完成。</p>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div id="reader-nav" class="reader-bar reader-nav visible">
+        <div class="nav-content">
+            {% if prev_photo %}
+                <a href="{% url 'photo_detail' pk=prev_photo.pk %}" class="btn btn-primary">
+                    ← 上一章
+                </a>
+            {% else %}
+                <button class="btn btn-disabled" disabled>第一章</button>
+            {% endif %}
+
+            <span class="page-info">#{{ photo.sort_index }}</span>
+
+            {% if next_photo %}
+                <a href="{% url 'photo_detail' pk=next_photo.pk %}" class="btn btn-primary">
+                    下一章 →
+                </a>
+            {% else %}
+                <a href="{% url 'album_detail' pk=photo.album.pk %}" class="btn btn-success">
+                    看完啦
+                </a>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+
+<style>
+    /* 覆盖 base.html 的默认 margin，实现全屏 */
+    body { background-color: #111; }
+    .content { width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; }
+
+    /* 隐藏 base.html 的默认 header (如果在阅读页不想显示网站主导航) */
+    /* 注意：如果想保留网站主导航，可以删掉下面这一行，但通常沉浸式阅读会隐藏它 */
+    body > header { display: none; }
+
+    .reader-wrapper { position: relative; width: 100%; min-height: 100vh; background-color: #111; }
+
+    /* 通用导航栏样式 */
+    .reader-bar {
+        position: fixed; left: 0; width: 100%;
+        background: rgba(0, 0, 0, 0.85); /* 半透明黑底 */
+        backdrop-filter: blur(10px);
+        color: white;
+        transition: transform 0.4s ease, opacity 0.4s ease;
+        z-index: 100;
+        padding: 10px 0;
+    }
+
+    /* 顶部特定 */
+    .reader-header {
+        top: 0;
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 10px 20px;
+        transform: translateY(-100%); /* 默认隐藏位置 */
+        opacity: 0;
+    }
+
+    /* 底部特定 */
+    .reader-nav {
+        bottom: 0;
+        transform: translateY(100%); /* 默认隐藏位置 */
+        opacity: 0;
+    }
+
+    /* 激活状态：显示 */
+    .reader-bar.visible {
+        transform: translateY(0);
+        opacity: 1;
+    }
+
+    .reader-title { font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+
+    /* 图片流 */
+    .image-stream {
+        padding-top: 0; padding-bottom: 0;
+        min-height: 100vh;
+        cursor: pointer; /* 提示可点击 */
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .img-wrapper img {
+        display: block; width: 100%; max-width: 900px; margin: 0 auto; height: auto;
+    }
+
+    /* 按钮微调 */
+    .nav-content { max-width: 900px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; padding: 0 1rem; }
+    .btn-outline-light { border: 1px solid rgba(255,255,255,0.3); color: white; text-decoration: none; padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; }
+    .btn-disabled { background: #333; color: #666; border: none; cursor: not-allowed; padding: 6px 12px; border-radius: 6px; }
+    .btn-success { background: #059669; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; }
+</style>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const header = document.getElementById('reader-header');
+        const nav = document.getElementById('reader-nav');
+        const touchLayer = document.getElementById('touch-layer');
+        let hideTimer;
+
+        // 核心函数：显示导航栏
+        function showBars() {
+            header.classList.add('visible');
+            nav.classList.add('visible');
+            resetTimer(); // 显示时重置自动隐藏计时器
+        }
+
+        // 核心函数：隐藏导航栏
+        function hideBars() {
+            header.classList.remove('visible');
+            nav.classList.remove('visible');
+        }
+
+        // 核心函数：切换状态
+        function toggleBars() {
+            if (header.classList.contains('visible')) {
+                hideBars();
+            } else {
+                showBars();
+            }
+        }
+
+        // 重置计时器 (3秒后自动隐藏)
+        function resetTimer() {
+            clearTimeout(hideTimer);
+            hideTimer = setTimeout(hideBars, 3000); // 3000ms = 3秒
+        }
+
+        // 1. 初始化：页面加载后，先等待2秒再自动隐藏，给用户反应时间
+        setTimeout(() => {
+            // 只有当用户没有进行操作时才隐藏
+            if (header.classList.contains('visible')) {
+                hideBars();
+            }
+        }, 2000);
+
+        // 2. 点击中间区域 -> 切换显示/隐藏
+        touchLayer.addEventListener('click', (e) => {
+            // 防止点击图片本身触发什么默认行为（虽然img通常没行为）
+            // e.stopPropagation();
+            toggleBars();
+        });
+
+        // 3. 任何点击导航栏内部的操作，都应该重置计时器，防止操作一半消失
+        header.addEventListener('click', resetTimer);
+        nav.addEventListener('click', resetTimer);
+
+        // 注意：我们故意不监听 scroll 事件，
+        // 这样就满足了“鼠标滚轮向下滑不会显示导航栏”的需求。
+    });
+</script>
+{% endblock %}

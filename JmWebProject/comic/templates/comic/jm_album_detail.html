@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}{{ album.name }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div style="margin-bottom: 1rem;">
+        <a href="{% url 'jm_album_list' %}" style="color: var(--text-sub); text-decoration: none;">← 返回书架</a>
+    </div>
+
+    <div class="detail-layout">
+        <aside class="detail-sidebar">
+            <div class="detail-cover">
+                {% if album.cover_path %}
+                    <img src="{{ MEDIA_URL }}{{ album.cover_path }}" alt="{{ album.name }}">
+                {% else %}
+                    <div style="height: 300px; background: #ddd; display: flex; align-items: center; justify-content: center;">无封面</div>
+                {% endif %}
+            </div>
+            
+            <div class="action-box">
+                <form method="post" action="{% url 'album_delete' pk=album.pk %}" onsubmit="return confirm('确定要删除《{{ album.name }}》吗？\n警告：这将同时删除硬盘上的所有图片文件！');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger" style="width: 100%; justify-content: center;">
+                        🗑️ 删除此本子 (文件+记录)
+                    </button>
+                </form>
+            </div>
+        </aside>
+
+        <main class="detail-content">
+            <h1 class="main-title">{{ album.name }}</h1>
+            
+            <div class="meta-grid">
+                <div class="meta-item"><strong>JM ID:</strong> {{ album.jm_id }}</div>
+                <div class="meta-item"><strong>作者:</strong> {{ album.author|default:"未知" }}</div>
+                <div class="meta-item"><strong>总章节:</strong> {{ album.total_episodes }}</div>
+                <div class="meta-item"><strong>入库时间:</strong> {{ album.created_at|date:"Y-m-d" }}</div>
+            </div>
+
+            <div class="tags-section">
+                {% for tag in album.tags %}
+                    <span class="tag-pill">{{ tag }}</span>
+                {% endfor %}
+            </div>
+
+            <div class="description-box">
+                {{ album.description|default:"暂无简介" }}
+            </div>
+
+            <h3 style="border-bottom: 2px solid var(--bg-color); padding-bottom: 10px; margin-top: 2rem;">
+                📂 章节列表
+            </h3>
+            
+            {% if photos %}
+                <div class="chapter-grid">
+                    {% for photo in photos %}
+                    <a href="{% url 'photo_detail' pk=photo.pk %}" class="chapter-btn {% if photo.is_downloaded %}downloaded{% endif %}">
+                        <span class="chap-index">#{{ photo.sort_index }}</span>
+                        <span class="chap-name">{{ photo.name }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p style="color: var(--text-sub);">暂无章节信息。</p>
+            {% endif %}
+        </main>
+    </div>
+</div>
+
+<style>
+    .detail-layout { display: grid; grid-template-columns: 300px 1fr; gap: 3rem; }
+    
+    /* 响应式：手机端变单列 */
+    @media (max-width: 768px) {
+        .detail-layout { grid-template-columns: 1fr; }
+        .detail-cover { max-width: 200px; margin: 0 auto; }
+    }
+
+    .detail-cover img { width: 100%; border-radius: var(--radius); box-shadow: var(--shadow-md); }
+    .action-box { margin-top: 1.5rem; }
+
+    .main-title { margin-top: 0; font-size: 2rem; line-height: 1.2; }
+    
+    .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 1.5rem 0; color: var(--text-sub); }
+    
+    .tag-pill {
+        display: inline-block; background: #e5e7eb; color: var(--text-main);
+        padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; margin-right: 8px; margin-bottom: 8px;
+    }
+
+    .description-box { background: #f9fafb; padding: 1rem; border-radius: 8px; color: #4b5563; font-size: 0.95rem; line-height: 1.6; }
+
+    .chapter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 1rem; }
+
+    .chapter-btn {
+        display: flex; flex-direction: column; 
+        background: white; border: 1px solid #e5e7eb; padding: 10px;
+        border-radius: 8px; text-decoration: none; color: var(--text-main);
+        transition: all 0.2s;
+    }
+    .chapter-btn:hover { border-color: var(--primary-color); background: #eff6ff; }
+    
+    .chap-index { font-size: 0.8rem; color: var(--text-sub); font-weight: bold; }
+    .chap-name { font-size: 0.95rem; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+{% endblock %}

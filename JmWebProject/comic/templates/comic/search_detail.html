@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}{{ album.name }} - 详情{% endblock %}
+
+{% block content %}
+<div class="container">
+    <a href="javascript:history.back()" style="color: var(--text-sub); text-decoration: none;">← 返回搜索结果</a>
+    
+    <div class="detail-layout" style="margin-top: 2rem;">
+        <aside class="detail-sidebar">
+            <div class="detail-cover">
+                <img src="{{ album.cover_url }}" alt="{{ album.name }}" referrerpolicy="no-referrer">
+            </div>
+            
+            <div class="action-box" style="margin-top: 1.5rem;">
+                {% if is_downloaded %}
+                    <button class="btn btn-block" style="background: #10b981; color: white; width: 100%; cursor: default;">
+                        ✔ 已存在于本地库
+                    </button>
+                    <button onclick="startDownload('{{ album.jm_id }}')" class="btn btn-outline" style="width: 100%; margin-top: 10px;">
+                        🔄 强制重新下载
+                    </button>
+                {% else %}
+                    <button onclick="startDownload('{{ album.jm_id }}')" id="dl-btn" class="btn btn-primary" style="width: 100%;">
+                        🚀 下载此本子 (Album)
+                    </button>
+                {% endif %}
+                <div id="status-msg" style="margin-top: 10px; font-size: 0.9rem; text-align: center;"></div>
+            </div>
+        </aside>
+
+        <main class="detail-content">
+            <h1 style="font-size: 2rem; margin-top: 0;">{{ album.name }}</h1>
+            
+            <div class="meta-grid">
+                <div class="meta-item"><strong>JM ID:</strong> {{ album.jm_id }}</div>
+                <div class="meta-item"><strong>作者:</strong> {{ album.author }}</div>
+                <div class="meta-item"><strong>章节数:</strong> {{ album.episode_count }}</div>
+            </div>
+
+            <div style="margin: 1.5rem 0;">
+                <h4 style="margin-bottom: 0.5rem;">标签:</h4>
+                <div class="tags-section">
+                    {% for tag in album.tags %}
+                        <span class="tag-pill">{{ tag }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div style="margin: 1.5rem 0;">
+                <h4 style="margin-bottom: 0.5rem;">简介:</h4>
+                <div class="description-box">
+                    {{ album.description }}
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+    // 调用现有的爬虫 API
+    async function startDownload(jmId) {
+        const btn = document.getElementById('dl-btn');
+        const msg = document.getElementById('status-msg');
+        
+        if(btn) {
+            btn.disabled = true;
+            btn.innerText = "⏳ 提交中...";
+        }
+        msg.innerHTML = '<span style="color: blue;">正在连接服务器...</span>';
+
+        const formData = new FormData();
+        formData.append('input_id', jmId); // 这里的 key 必须对应 start_crawl_view 中的 input_id
+
+        try {
+            const response = await fetch('{% url "start_crawl_api" %}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: formData
+            });
+            const result = await response.json();
+            
+            if (response.ok) {
+                msg.innerHTML = `<span class="success">✅ 任务已提交 (ID: ${result.task_id})<br>请在"爬虫中心"或后台查看进度。</span>`;
+                if(btn) btn.innerText = "任务处理中";
+            } else {
+                msg.innerHTML = `<span class="error">❌ 失败: ${result.error}</span>`;
+                if(btn) { btn.disabled = false; btn.innerText = "重试下载"; }
+            }
+        } catch (err) {
+            msg.innerHTML = `<span class="error">❌ 网络错误</span>`;
+            if(btn) { btn.disabled = false; btn.innerText = "重试下载"; }
+        }
+    }
+</script>
+
+<style>
+    /* 复用详情页样式 */
+    .detail-layout { display: grid; grid-template-columns: 300px 1fr; gap: 3rem; }
+    @media (max-width: 768px) { .detail-layout { grid-template-columns: 1fr; } }
+    .detail-cover img { width: 100%; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 1.5rem 0; color: #6b7280; }
+    .tag-pill { display: inline-block; background: #e5e7eb; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; margin-right: 8px; margin-bottom: 8px; }
+    .description-box { background: #f9fafb; padding: 1rem; border-radius: 8px; line-height: 1.6; color: #4b5563; }
+    .success { color: #059669; }
+    .error { color: #dc2626; }
+</style>
+{% endblock %}
