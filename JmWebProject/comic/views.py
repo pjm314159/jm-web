@@ -1,6 +1,6 @@
 # comic/views.py
 # from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
@@ -15,7 +15,7 @@ import re
 import datetime
 from .models import Album, Photo
 from .tasks import sanitize_filename  # 复用 tasks 中的清洗函数，确保路径一致
-from jmcomic import JmSearchPage, JmcomicText,JmOption # 修正 jmcomic 导入
+from jmcomic import JmSearchPage, JmcomicText, JmOption, JmImageTool  # 修正 jmcomic 导入
 from .tasks import crawl_jm_task
 from .utils import parse_jm_input
 
@@ -33,7 +33,7 @@ def jm_album_list_view(request):
     albums_queryset = Album.objects.filter(photos__is_downloaded=True).distinct().order_by('-created_at')
 
     # 分页：每页 12 个本子 (3x4 或 4x3 布局)
-    paginator = Paginator(albums_queryset, 12)
+    paginator = Paginator(albums_queryset, 30)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
@@ -467,29 +467,21 @@ def search_view(request):
 
 @login_required
 def search_detail_view(request, jm_id):
-    """
-    搜索详情页：展示详细信息并提供下载按钮
-    注意：这里我们实际上可以直接重用 search_view 里的数据，
-    或者再次调用 client.get_album_detail(jm_id) 获取更详细数据。
-    为了展示更丰富的信息，我们选择调用 get_album_detail。
-    """
     try:
-
+        client = JmOption.default().new_jm_client()
         album_detail = client.get_album_detail(jm_id)
 
         # 检查本地状态
         local_album = Album.objects.filter(jm_id=jm_id).first()
         is_downloaded = local_album.photos.filter(is_downloaded=True).exists() if local_album else False
 
-        # 处理作者 (API可能是列表或字符串)
+        # 处理作者
         author = "未知"
         if hasattr(album_detail, 'authors') and album_detail.authors:
-            author = ",".join(album_detail.authors)
+            # 如果是列表，取第一个或join
+            author = album_detail.authors[0] if len(album_detail.authors) > 0 else "未知"
         elif hasattr(album_detail, 'author'):
             author = album_detail.author
-
-        # 封面 URL
-        cover_url = JmcomicText.get_album_cover_url(jm_id)
 
         context = {
             'album': {
@@ -498,13 +490,86 @@ def search_detail_view(request, jm_id):
                 'author': author,
                 'description': getattr(album_detail, 'description', '暂无简介'),
                 'tags': getattr(album_detail, 'tags', []),
-                'actors': getattr(album_detail, 'actors', []),
-                'cover_url': cover_url,
-                'episode_count': len(album_detail.episode_list) if hasattr(album_detail, 'episode_list') else 0,
+                'cover_url': JmcomicText.get_album_cover_url(jm_id),
+                # 关键：传递章节列表
+                'episode_list': album_detail.episode_list,
             },
             'is_downloaded': is_downloaded,
         }
         return render(request, 'comic/search_detail.html', context)
+    except Exception as e:
+        return render(request, 'comic/error.html', {'message': str(e)})
 
     except Exception as e:
         return render(request, 'comic/error.html', {'message': f"获取详情失败: {str(e)}"})
+
+
+
+
+# 2. 在线章节选择页 (点击搜索结果后的预览页)
+@login_required
+def search_preview_album_view(request, jm_id):
+    """
+    获取在线本子的详细章节列表
+    """
+    try:
+        album_detail = client.get_album_detail(jm_id)
+
+        context = {
+            'album': album_detail,
+            'episode_list': album_detail.episode_list,  # 章节列表
+        }
+        return render(request, 'comic/search_preview_album.html', context)
+    except Exception as e:
+        return render(request, 'comic/error.html', {'message': f"获取章节失败: {e}"})
+
+
+# 3. 在线章节阅读器
+@login_required
+def search_preview_photo_view(request, photo_id):
+    try:
+        client = JmOption.default().new_jm_client()
+
+        # 1. 获取详情 (fetch_scramble_id=True 用于计算混淆)
+        photo_detail = client.get_photo_detail(photo_id, True)
+        scramble_id = photo_detail.scramble_id
+
+        # 2. 预计算数据 (只传 URL 和 num 给前端)
+        image_data_list = []
+        for img in photo_detail:
+            # 纯数学计算，无网络请求
+            num = JmImageTool.get_num_by_url(scramble_id, img.img_url)
+            image_data_list.append({
+                'url': img.img_url,
+                'num': num
+            })
+
+        # 3. 分页处理
+        IMAGES_PER_PAGE = 300
+        paginator = Paginator(image_data_list, IMAGES_PER_PAGE)
+
+        page_number = request.GET.get('page', 1)
+        # 处理跳转逻辑
+        target_jump = request.GET.get('target')
+        if target_jump:
+            try:
+                page_number = (int(target_jump) - 1) // IMAGES_PER_PAGE + 1
+            except:
+                pass
+
+        page_obj = paginator.get_page(page_number)
+        current_start_index = page_obj.start_index() if page_obj.start_index() else 1
+
+        context = {
+            'photo': photo_detail,
+            'page_obj': page_obj,
+            'current_start_index': current_start_index,
+            'images_per_page': IMAGES_PER_PAGE,
+            'total_images': len(image_data_list),
+            'target_jump_index': target_jump,
+            'album_id': photo_detail.album_id,
+        }
+        return render(request, 'comic/search_preview_reader.html', context)
+
+    except Exception as e:
+        return render(request, 'comic/error.html', {'message': f"阅读失败: {e}"})

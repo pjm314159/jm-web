@@ -24,4 +24,9 @@ urlpatterns = [
     # 6. search
     path('search/', views.search_view, name='search'),
     path('search/detail/<str:jm_id>/', views.search_detail_view, name='search_detail'),
+
+    # 在线预览模块
+    path('search/preview/album/<str:jm_id>/', views.search_preview_album_view, name='search_preview_album'),  # 章节目录
+    path('search/preview/photo/<str:photo_id>/', views.search_preview_photo_view, name='search_preview_photo'),  # 阅读器
+
 ]

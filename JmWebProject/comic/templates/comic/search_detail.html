@@ -4,25 +4,21 @@
 
 {% block content %}
 <div class="container">
-    <a href="javascript:history.back()" style="color: var(--text-sub); text-decoration: none;">← 返回搜索结果</a>
-    
+    <a href="{% url 'search' %}" style="color: #666; text-decoration: none;">← 返回搜索</a>
+
     <div class="detail-layout" style="margin-top: 2rem;">
         <aside class="detail-sidebar">
             <div class="detail-cover">
                 <img src="{{ album.cover_url }}" alt="{{ album.name }}" referrerpolicy="no-referrer">
             </div>
-            
             <div class="action-box" style="margin-top: 1.5rem;">
                 {% if is_downloaded %}
                     <button class="btn btn-block" style="background: #10b981; color: white; width: 100%; cursor: default;">
-                        ✔ 已存在于本地库
-                    </button>
-                    <button onclick="startDownload('{{ album.jm_id }}')" class="btn btn-outline" style="width: 100%; margin-top: 10px;">
-                        🔄 强制重新下载
+                        ✔ 本地已存在
                     </button>
                 {% else %}
                     <button onclick="startDownload('{{ album.jm_id }}')" id="dl-btn" class="btn btn-primary" style="width: 100%;">
-                        🚀 下载此本子 (Album)
+                        🚀 添加下载任务
                     </button>
                 {% endif %}
                 <div id="status-msg" style="margin-top: 10px; font-size: 0.9rem; text-align: center;"></div>
@@ -30,28 +26,47 @@
         </aside>
 
         <main class="detail-content">
-            <h1 style="font-size: 2rem; margin-top: 0;">{{ album.name }}</h1>
-            
+            <h1>{{ album.name }}</h1>
+
             <div class="meta-grid">
+                <div class="meta-item">
+                    <strong>作者:</strong>
+                    <a href="{% url 'search' %}?type=keyword&q={{ album.author }}" class="author-link">
+                        {{ album.author }}
+                    </a>
+                </div>
                 <div class="meta-item"><strong>JM ID:</strong> {{ album.jm_id }}</div>
-                <div class="meta-item"><strong>作者:</strong> {{ album.author }}</div>
-                <div class="meta-item"><strong>章节数:</strong> {{ album.episode_count }}</div>
             </div>
 
             <div style="margin: 1.5rem 0;">
-                <h4 style="margin-bottom: 0.5rem;">标签:</h4>
-                <div class="tags-section">
+                <div class="tags-scroll-row" style="flex-wrap: wrap; overflow: visible;">
                     {% for tag in album.tags %}
-                        <span class="tag-pill">{{ tag }}</span>
+                        <a href="{% url 'search' %}?type=tag&q={{ tag }}" class="tag-pill">{{ tag }}</a>
                     {% endfor %}
                 </div>
             </div>
 
-            <div style="margin: 1.5rem 0;">
-                <h4 style="margin-bottom: 0.5rem;">简介:</h4>
-                <div class="description-box">
-                    {{ album.description }}
-                </div>
+            <div class="description-box" style="background:#f9fafb; padding:15px; border-radius:8px; margin-bottom:2rem;">
+                {{ album.description }}
+            </div>
+
+            <h3>📖 章节目录 (在线预览)</h3>
+            <div class="list-group" style="margin-top: 15px;">
+                {% for ep in album.episode_list %}
+                    {% if ep.0 %}
+                        <a href="{% url 'search_preview_photo' photo_id=ep.0 %}" class="list-group-item"
+                           style="display: block; padding: 12px; border-bottom: 1px solid #eee; text-decoration: none; color: #333;">
+                            📄 {{ ep.2 }} <span style="float: right; color: #999; font-size: 0.8rem;">{{ ep.0 }}</span>
+                        </a>
+                    {% elif ep.photo_id %}
+                         <a href="{% url 'search_preview_photo' photo_id=ep.photo_id %}" class="list-group-item"
+                           style="display: block; padding: 12px; border-bottom: 1px solid #eee; text-decoration: none; color: #333;">
+                            📄 {{ ep.title }}
+                        </a>
+                    {% endif %}
+                {% empty %}
+                    <p style="color: #999;">暂无章节信息</p>
+                {% endfor %}
             </div>
         </main>
     </div>
@@ -97,7 +112,9 @@
 </script>
 
 <style>
-    /* 复用详情页样式 */
+    .detail-layout { display: grid; grid-template-columns: 300px 1fr; gap: 3rem; }
+    @media (max-width: 768px) { .detail-layout { grid-template-columns: 1fr; } }
+    {#.detail-cover img { width: 100%; border-radius: 8px; }#}
     .detail-layout { display: grid; grid-template-columns: 300px 1fr; gap: 3rem; }
     @media (max-width: 768px) { .detail-layout { grid-template-columns: 1fr; } }
     .detail-cover img { width: 100%; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }

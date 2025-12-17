@@ -48,7 +48,7 @@ SECRET_KEY = 'django-insecure-jnjgzo5%d43(iyjp3zsbc)^($zq@nh)kx0vfbl&6fm9_z*u+sf
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['watch.pjm3.dpdns.org',"127.0.0.1"]
+ALLOWED_HOSTS = ['pjm3.dpdns.org',"127.0.0.1"]
 
 
 # Application definition
@@ -74,12 +74,12 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 CSRF_TRUSTED_ORIGINS = [
-    'https://watch.pjm3.dpdns.org',
-    'http://watch.pjm3.dpdns.org',
+    'https://pjm3.dpdns.org',
+    'http://pjm3.dpdns.org',
     "http://127.0.0.1"
 ]
 CORS_ALLOWED_ORIGINS = [
-    "https://watch.pjm3.dpdns.org",
+    "https://pjm3.dpdns.org",
     "http://127.0.0.1"
 ]
 ROOT_URLCONF = 'JmWebProject.urls'

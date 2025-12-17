@@ -22,7 +22,7 @@
             {% with global_index=current_start_index|add:forloop.counter0 %}
 
             <div id="img-{{ global_index }}" class="img-wrapper">
-                <img src="{{ img_url }}" loading="lazy" alt="Image #{{ global_index }}">
+                <img src="{{ img_url }}" loading="eager" alt="Image #{{ global_index }}">
                 </div>
 
             {% endwith %}

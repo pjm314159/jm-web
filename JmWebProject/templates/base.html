@@ -5,6 +5,50 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}JmWebProject{% endblock %}</title>
     <style>
+
+    /* 标签行：横向滚动，隐藏滚动条 */
+.tags-scroll-row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    white-space: nowrap;
+    padding-bottom: 5px; /* 预留一点滑动空间 */
+    scrollbar-width: none; /* Firefox 隐藏滚动条 */
+    -ms-overflow-style: none;  /* IE 隐藏 */
+}
+.tags-scroll-row::-webkit-scrollbar {
+    display: none; /* Chrome/Safari 隐藏 */
+}
+
+/* 标签样式 */
+.tag-pill {
+    display: inline-block;
+    background: #eff6ff;
+    color: #2563eb;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    text-decoration: none;
+    flex-shrink: 0; /* 防止被压缩 */
+    border: 1px solid transparent;
+    transition: all 0.2s;
+}
+.tag-pill:hover {
+    background: #2563eb;
+    color: white;
+    border-color: #1d4ed8;
+}
+
+/* 作者链接样式 */
+.author-link {
+    color: #4b5563;
+    text-decoration: none;
+    font-weight: 500;
+}
+.author-link:hover {
+    color: #2563eb;
+    text-decoration: underline;
+}
     :root {
         --primary-color: #2563eb; /* 现代蓝 */
         --primary-hover: #1d4ed8;

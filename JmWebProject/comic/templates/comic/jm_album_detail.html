@@ -33,14 +33,14 @@
             
             <div class="meta-grid">
                 <div class="meta-item"><strong>JM ID:</strong> {{ album.jm_id }}</div>
-                <div class="meta-item"><strong>作者:</strong> {{ album.author|default:"未知" }}</div>
+                <div class="meta-item"><strong>作者:</strong> <a href="{% url 'search' %}?type=keyword&q={{ album.author }}" class="author-link">{{ album.author }}</a></div>
                 <div class="meta-item"><strong>总章节:</strong> {{ album.total_episodes }}</div>
                 <div class="meta-item"><strong>入库时间:</strong> {{ album.created_at|date:"Y-m-d" }}</div>
             </div>
 
             <div class="tags-section">
                 {% for tag in album.tags %}
-                    <span class="tag-pill">{{ tag }}</span>
+                    <a href="{% url 'search' %}?type=tag&q={{ tag }}" class="tag-pill">{{ tag }}</a>
                 {% endfor %}
             </div>
 

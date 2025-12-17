@@ -1,53 +1,64 @@
 {% extends "base.html" %}
 
-{% block title %}在线搜索 - JmComic{% endblock %}
+{% block title %}搜索结果{% endblock %}
 
 {% block content %}
 <div class="container">
-    <h1 style="text-align: center; margin-bottom: 2rem;">🔍 在线搜索</h1>
-
-    <div class="search-box">
-        <form method="get" action="" style="display: flex; gap: 10px; max-width: 600px; margin: 0 auto; flex-wrap: wrap;">
-            <select name="type" class="form-select" style="width: 100px; padding: 10px; border-radius: 8px; border: 1px solid #d1d5db;">
-                <option value="keyword" {% if search_type == 'keyword' %}selected{% endif %}>关键字</option>
+    <div style="margin-bottom: 2rem;">
+        <h1 style="font-size: 1.8rem; margin-bottom: 1rem;">JM 搜索</h1>
+        <form method="get" action="{% url 'search' %}" style="display: flex; gap: 10px;">
+            <input type="text" name="q" value="{{ query }}" placeholder="输入 JM ID、关键词或车牌号..."
+                   class="form-control" style="flex: 1; padding: 10px;">
+            <select name="type" class="form-control" style="width: auto;">
+                <option value="keyword" {% if search_type == 'keyword' %}selected{% endif %}>关键词</option>
+                <option value="id" {% if search_type == 'id' %}selected{% endif %}>JM ID</option>
                 <option value="tag" {% if search_type == 'tag' %}selected{% endif %}>标签</option>
+                <option value="author" {% if search_type == 'author' %}selected{% endif %}>作者</option>
             </select>
-            
-            <input type="text" name="q" value="{{ query }}" placeholder="输入搜索内容..." required
-                   style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #d1d5db;">
-            
             <button type="submit" class="btn btn-primary">搜索</button>
         </form>
     </div>
 
-    <hr style="margin: 2rem 0; border: 0; border-top: 1px solid #e5e7eb;">
-
-    {% if error_msg %}
-        <div class="error">{{ error_msg }}</div>
-    {% endif %}
-
     {% if results %}
+        <div style="margin-bottom: 1rem; color: var(--text-sub);">
+            找到 {{ results|length }} 个结果 (关键词: {{ query }})
+        </div>
+
         <div class="album-grid">
             {% for item in results %}
             <a href="{% url 'search_detail' jm_id=item.jm_id %}" class="album-card">
+
                 <div class="cover-wrapper">
                     <img src="{{ item.cover_url }}" alt="{{ item.name }}" loading="lazy" referrerpolicy="no-referrer">
-                    
-                    {% if item.is_downloaded %}
-                        <div class="status-badge" style="background: #059669;">✔ 已下载</div>
-                    {% else %}
-                        <div class="status-badge" style="background: #6b7280;">未下载</div>
-                    {% endif %}
+
+                    <div class="status-badge">ID: {{ item.jm_id }}</div>
                 </div>
+
                 <div class="card-info">
                     <h3 class="album-title">{{ item.name }}</h3>
+
                     <div class="album-meta">
-                        <span>{{ item.author|default:"未知作者" }}</span>
-                        <span>{{ item.update_time }}</span>
+                        {% if item.author %}
+                        <object> <a href="{% url 'search' %}?type=keyword&q={{ item.author }}" class="author-link" title="搜索该作者">
+                                👤 {{ item.author }}
+                            </a>
+                        </object>
+                        {% else %}
+                            <span>未知作者</span>
+                        {% endif %}
+
+                        {% if item.category %}
+                        <span>{{ item.category }}</span>
+                        {% endif %}
                     </div>
-                    <div class="tags-row">
-                        {% for tag in item.tags|slice:":3" %}
-                            <span class="tag">{{ tag }}</span>
+
+                    <div class="tags-scroll-row">
+                        {% for tag in item.tags %}
+                        <object>
+                            <a href="{% url 'search' %}?type=tag&q={{ tag }}" class="tag-pill">
+                                {{ tag }}
+                            </a>
+                        </object>
                         {% endfor %}
                     </div>
                 </div>
@@ -55,40 +66,146 @@
             {% endfor %}
         </div>
 
-        {% if pagination.page_count > 1 %}
-        <div class="pagination-bar">
-            {% if pagination.has_prev %}
-                <a href="?q={{ query }}&type={{ search_type }}&page={{ pagination.prev_num }}" class="btn btn-outline">上一页</a>
-            {% endif %}
-            
-            <span style="margin: 0 15px; color: var(--text-sub);">
-                第 {{ pagination.current }} / {{ pagination.page_count }} 页
-            </span>
-            
-            {% if pagination.has_next %}
-                <a href="?q={{ query }}&type={{ search_type }}&page={{ pagination.next_num }}" class="btn btn-outline">下一页</a>
-            {% endif %}
-        </div>
-        {% endif %}
-
     {% elif query %}
-        <p style="text-align: center; color: var(--text-sub); margin-top: 3rem;">未找到相关结果。</p>
+        <div style="text-align: center; padding: 4rem; color: #666;">
+            <h3>🔍 未找到相关本子</h3>
+            <p>请尝试更换关键词或检查 ID 是否正确。</p>
+        </div>
     {% endif %}
 </div>
 
 <style>
-    /* 引用之前的 grid 样式 */
-    .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1.5rem; }
-    .album-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-decoration: none; color: inherit; overflow: hidden; transition: transform 0.2s; display: flex; flex-direction: column;}
-    .album-card:hover { transform: translateY(-5px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .cover-wrapper { position: relative; padding-top: 140%; background: #f3f4f6; }
-    .cover-wrapper img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
-    .status-badge { position: absolute; top: 10px; right: 10px; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; backdrop-filter: blur(2px); }
-    .card-info { padding: 1rem; flex: 1; display: flex; flex-direction: column; }
-    .album-title { font-size: 1rem; margin: 0 0 0.5rem 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-weight: bold; }
-    .album-meta { font-size: 0.85rem; color: #6b7280; display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
-    .tags-row { margin-top: auto; display: flex; gap: 5px; flex-wrap: wrap; }
-    .tag { font-size: 0.75rem; background: #eff6ff; color: #2563eb; padding: 2px 6px; border-radius: 4px; }
-    .pagination-bar { margin-top: 3rem; display: flex; justify-content: center; align-items: center; }
+    /* 继承自 base.html 的基础变量
+       如果 base.html 没有定义这些 var，请手动替换颜色代码
+    */
+    :root {
+        --card-bg: #ffffff;
+        --text-main: #333333;
+        --text-sub: #6b7280;
+        --primary-color: #2563eb;
+        --radius: 12px;
+        --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    /* 网格布局 */
+    .album-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); /* 稍微调小一点，容纳更多 */
+        gap: 1.5rem;
+    }
+
+    /* 卡片主体 */
+    .album-card {
+        background: var(--card-bg);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-sm);
+        text-decoration: none;
+        color: inherit;
+        overflow: hidden;
+        transition: transform 0.2s, box-shadow 0.2s;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #e5e7eb; /* 增加一点边框 */
+    }
+
+    .album-card:hover {
+        transform: translateY(-5px);
+        box-shadow: var(--shadow-md);
+        border-color: #bfdbfe;
+    }
+
+    /* 封面包裹 */
+    .cover-wrapper {
+        position: relative;
+        padding-top: 140%; /* 1:1.4 比例 */
+        background: #f3f4f6;
+    }
+
+    .cover-wrapper img {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        object-fit: cover;
+    }
+
+    .status-badge {
+        position: absolute;
+        top: 6px; right: 6px;
+        background: rgba(0,0,0,0.6);
+        color: white;
+        font-size: 0.7rem;
+        padding: 2px 6px;
+        border-radius: 4px;
+        backdrop-filter: blur(4px);
+    }
+
+    /* 信息区域 */
+    .card-info {
+        padding: 12px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between; /* 上下撑开 */
+        min-width: 0; /* 防止 flex 子元素溢出 */
+    }
+
+    .album-title {
+        font-size: 0.95rem;
+        margin: 0 0 8px 0;
+        font-weight: 600;
+        color: var(--text-main);
+        /* 限制 2 行 */
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        line-height: 1.4;
+    }
+
+    .album-meta {
+        font-size: 0.8rem;
+        color: var(--text-sub);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .author-link {
+        color: var(--text-sub);
+        text-decoration: none;
+        transition: color 0.2s;
+    }
+    .author-link:hover {
+        color: var(--primary-color);
+        text-decoration: underline;
+    }
+
+    /* 横向滚动标签栏 */
+    .tags-scroll-row {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        white-space: nowrap;
+        padding-bottom: 4px; /* 滚动条空间 */
+        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none; /* IE */
+    }
+    .tags-scroll-row::-webkit-scrollbar { display: none; }
+
+    .tag-pill {
+        display: inline-block;
+        background: #eff6ff;
+        color: #3b82f6;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 0.7rem;
+        text-decoration: none;
+        flex-shrink: 0;
+    }
+    .tag-pill:hover {
+        background: #2563eb;
+        color: white;
+    }
 </style>
 {% endblock %}
