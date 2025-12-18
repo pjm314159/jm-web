@@ -468,7 +468,6 @@ def search_view(request):
 @login_required
 def search_detail_view(request, jm_id):
     try:
-        client = JmOption.default().new_jm_client()
         album_detail = client.get_album_detail(jm_id)
 
         # 检查本地状态
