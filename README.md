@@ -21,7 +21,6 @@
 本项目基于为个人开发，不要做成网站
 ## Thanks
 大力感谢开发jmcomic的开发者
-[![Readme Card]( https://github-readme-stats.vercel.app/api/pin/?username=hect0x7&repo=JMComic-Crawler-Python)](https://github.com/hect0x7/JMComic-Crawler-Python) 
 <a href="https://github.com/hect0x7/JMComic-Crawler-Python">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://github-readme-stats.vercel.app/api/pin/?username=hect0x7&repo=JMComic-Crawler-Python&theme=radical" />
