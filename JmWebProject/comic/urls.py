@@ -1,7 +1,8 @@
 # comic/urls.py
+from django.template.defaulttags import url
 from django.urls import path
 from . import views
-
+from django.views.generic.base import RedirectView
 urlpatterns = [
     # 1. 新首页 (Hub)
     path('', views.home_view, name='index'),
@@ -20,7 +21,10 @@ urlpatterns = [
 
     # 5. 本地模块
     path('local/', views.local_media_view, name='local_media'),
-    path('local/<str:type>/<str:folder_name>/', views.local_media_detail_view, name='local_media_detail'),
+    path('local/images/<str:folder_name>/', views.local_media_images_view, name='local_media_images'),
+    path("local/videos/<str:folder_name>",views.local_media_videos_view, name='local_media_videos'),
+# 视频流式传输路由 (FileResponse)
+    path('local/stream/<str:folder_name>/<str:file_name>/', views.stream_video_view, name='stream_video'),
     # 6. search
     path('search/', views.search_view, name='search'),
     path('search/detail/<str:jm_id>/', views.search_detail_view, name='search_detail'),

@@ -49,8 +49,10 @@ SECRET_KEY = 'django-insecure-jnjgzo5%d43(iyjp3zsbc)^($zq@nh)kx0vfbl&6fm9_z*u+sf
 DEBUG = True
 
 ALLOWED_HOSTS = ['pjm3.dpdns.org',"127.0.0.1"]
-
-
+# security
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
 # Application definition
 
 INSTALLED_APPS = [
@@ -149,6 +151,9 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'static'),
+]
 # JmWebProject/settings.py
 
 LOGIN_URL = '/auth/login/'

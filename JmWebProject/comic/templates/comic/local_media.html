@@ -3,56 +3,147 @@
 {% block title %}本地资源库{% endblock %}
 
 {% block content %}
-<div class="container">
-    <h1>📂 本地资源库</h1>
+<style>
+    .media-library-container {
+        background-color: #f9fafb; /* 极简浅灰背景 */
+        min-height: calc(100vh - 80px);
+        padding: 30px 20px;
+    }
 
-    <div class="section">
-        <h3>📸 图片相册 (Media/Images/Local)</h3>
-        {% if image_albums %}
-            <div style="display: flex; flex-wrap: wrap; gap: 20px;">
-                {% for album in image_albums %}
-                <div style="width: 200px; border: 1px solid #ddd; padding: 10px; border-radius: 8px; text-align: center;">
-                    <a href="{% url 'local_media_detail' type='images' folder_name=album.folder_name %}">
-                        <div style="width: 100%; height: 150px; background-color: #f0f0f0; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 10px;">
-                            {% if album.cover_url %}
-                                <img src="{{ album.cover_url }}" style="width: 100%; height: 100%; object-fit: cover;">
-                            {% else %}
-                                <span style="font-size: 30px;">🖼️</span>
-                            {% endif %}
-                        </div>
-                        <strong style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ album.name }}</strong>
-                        <span style="color: #666; font-size: 0.9em;">{{ album.count }} 张图片</span>
-                    </a>
-                </div>
-                {% endfor %}
-            </div>
-        {% else %}
-            <p style="color: #888;">暂无本地相册，请在 media/images/local/ 下创建文件夹。</p>
-        {% endif %}
+    .section-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: 20px;
+        color: #111827;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .media-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 20px;
+        margin-bottom: 40px;
+    }
+
+    .media-card {
+        background: #ffffff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        text-decoration: none;
+        color: inherit;
+        overflow: hidden;
+        transition: all 0.2s ease;
+    }
+
+    .media-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 20px rgba(0,0,0,0.08);
+        border-color: #2563eb;
+    }
+
+    .card-cover-wrapper {
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        background: #f3f4f6;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+
+    .card-cover-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .count-badge {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(255,255,255,0.9);
+        color: #374151;
+        padding: 2px 10px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .card-content { padding: 12px; }
+    .card-title {
+        font-size: 0.95rem;
+        font-weight: 500;
+        color: #111827;
+        margin-bottom: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .card-subtitle { font-size: 0.8rem; color: #6b7280; }
+
+    .empty-state {
+        background: #fff;
+        border: 2px dashed #e5e7eb;
+        border-radius: 12px;
+        padding: 40px;
+        text-align: center;
+        color: #9ca3af;
+    }
+</style>
+
+<div class="media-library-container">
+    <div style="margin-bottom: 30px;">
+        <h1 style="color: #111827; margin: 0;">本地资源库</h1>
     </div>
 
-    <hr>
-
-    <div class="section">
-        <h3>🎬 视频合集 (Media/Videos)</h3>
-        {% if video_folders %}
-            <div style="display: flex; flex-wrap: wrap; gap: 20px;">
-                {% for folder in video_folders %}
-                <div style="width: 200px; border: 1px solid #ddd; padding: 10px; border-radius: 8px; text-align: center; background-color: #f9f9f9;">
-                    <a href="{% url 'local_media_detail' type='videos' folder_name=folder.folder_name %}">
-                        <div style="width: 100%; height: 100px; display: flex; align-items: center; justify-content: center;">
-                            <span style="font-size: 40px;">▶️</span>
-                        </div>
-                        <strong>{{ folder.name }}</strong>
-                        <br>
-                        <span style="color: #666; font-size: 0.9em;">{{ folder.count }} 个视频</span>
-                    </a>
+    <div class="section-title">图片相册</div>
+    {% if image_albums %}
+        <div class="media-grid">
+            {% for album in image_albums %}
+            <a href="{% url 'local_media_images'  folder_name=album.folder_name %}" class="media-card">
+                <div class="card-cover-wrapper">
+                    {% if album.cover_url %}
+                        <img src="{{ album.cover_url }}" class="card-cover-img">
+                    {% else %}
+                        <span style="font-size: 2rem;">🖼️</span>
+                    {% endif %}
+                    <div class="count-badge">{{ album.count }}P</div>
                 </div>
-                {% endfor %}
-            </div>
-        {% else %}
-            <p style="color: #888;">暂无视频文件夹，请在 media/videos/ 下创建文件夹。</p>
-        {% endif %}
-    </div>
+                <div class="card-content">
+                    <div class="card-title">{{ album.name }}</div>
+                    <div class="card-subtitle">本地文件夹</div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">暂无图片资源</div>
+    {% endif %}
+
+    <div style="height: 30px;"></div>
+
+    <div class="section-title"> 视频合集</div>
+    {% if video_folders %}
+        <div class="media-grid">
+            {% for folder in video_folders %}
+            <a href="{% url 'local_media_videos' folder_name=folder.folder_name %}" class="media-card">
+                <div class="card-cover-wrapper">
+                    <span style="font-size: 2.5rem;">▶️</span>
+                    <div class="count-badge">{{ folder.count }}个视频</div>
+                </div>
+                <div class="card-content">
+                    <div class="card-title">{{ folder.name }}</div>
+                    <div class="card-subtitle">Video Folder</div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">暂无视频资源</div>
+    {% endif %}
 </div>
 {% endblock %}

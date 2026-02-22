@@ -35,7 +35,6 @@ class Photo(models.Model):
     jm_id = models.CharField(max_length=50, unique=True, verbose_name="章节 ID")
     name = models.CharField(max_length=255, verbose_name="章节名称")
     sort_index = models.IntegerField(default=0, verbose_name="章节序号")  # 对应 episode_list 中的 '1'
-
     # 下载状态
     is_downloaded = models.BooleanField(default=False)
     save_path = models.CharField(max_length=512, blank=True, null=True, verbose_name="保存路径")

@@ -1,13 +1,9 @@
-# comic/views.py
-# from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, Http404, FileResponse, StreamingHttpResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.conf import settings
 from django.http import HttpResponseForbidden
-# from django.db.models import Q
-# from django.db import models  # 用于搜索Q查询
 from pathlib import Path
 import os
 import shutil  # 用于递归删除文件夹
@@ -15,11 +11,13 @@ import re
 import datetime
 from .models import Album, Photo
 from .tasks import sanitize_filename  # 复用 tasks 中的清洗函数，确保路径一致
-from jmcomic import JmSearchPage, JmcomicText, JmOption, JmImageTool  # 修正 jmcomic 导入
+from jmcomic import JmSearchPage, JmcomicText, JmImageTool,create_option_by_file  # 修正 jmcomic 导入
 from .tasks import crawl_jm_task
 from .utils import parse_jm_input
 
 # 初始化客户端
+# client = create_option_by_file("comic/settings/jm-option.yml").new_jm_client()
+from jmcomic import JmOption
 client = JmOption.default().new_jm_client()
 # ----------------------------------------------------
 # 1. 本子总览页 (Card UI)
@@ -275,29 +273,105 @@ def local_media_view(request):
 # 模块三：本地模块 - 详情页 (展示具体文件)
 # ----------------------------------------------------
 IMAGE_PER_PAGE = 300 # 每页显示 300 张图片
+# @login_required
+# def local_media_detail_view(request, type, folder_name):
+#     """
+#     展示具体文件夹内的图片或视频
+#     :param type: 'images' 或 'videos'
+#     :param folder_name: 文件夹名称
+#     """
+#     base_dir = Path(settings.MEDIA_ROOT)
+#
+#     if type == 'images':
+#         target_dir = base_dir / 'images' / 'local' / folder_name
+#         valid_exts = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+#         template_name = 'comic/local_images_detail.html'  # 图片专用模板
+#     elif type == 'videos':
+#         target_dir = base_dir / 'videos' / folder_name
+#         valid_exts = ['.mp4', '.webm', '.mov', '.mkv']
+#         template_name = 'comic/local_videos_detail.html'  # 视频专用模板
+#     else:
+#         return redirect('local_media')
+#
+#     if not target_dir.exists():
+#         return render(request, 'comic/error.html', {'message': '文件夹不存在'})
+#
+#     files = []
+#     # 获取所有符合后缀的文件
+#     raw_files = [f for f in target_dir.iterdir() if f.is_file() and f.suffix.lower() in valid_exts]
+#
+#     # 文件名自然排序 (1.jpg, 2.jpg, 10.jpg)
+#     raw_files.sort(key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x.name)])
+#
+#     for f in raw_files:
+#         # 构造 URL
+#         if type == 'images':
+#             url = f"{settings.MEDIA_URL}images/local/{folder_name}/{f.name}"
+#         else:
+#             url = f"{settings.MEDIA_URL}videos/{folder_name}/{f.name}"
+#
+#         files.append({
+#             'name': f.name,
+#             'url': url
+#         })
+#
+#     if type == 'images':
+#         paginator = Paginator(files, IMAGE_PER_PAGE)
+#
+#         page_number = request.GET.get('page')
+#         jump_to_index = request.GET.get('jump')
+#         target_jump_index = None  # 新增：用于告诉模板要滚动到哪张图
+#
+#         if jump_to_index:
+#             try:
+#                 # 1. 计算目标页码
+#                 jump_index = max(1, int(jump_to_index))
+#                 # 确保不超过总数
+#                 jump_index = min(jump_index, len(files))
+#
+#                 target_page = ((jump_index - 1) // IMAGE_PER_PAGE) + 1
+#                 page_number = target_page
+#
+#                 # 2. 记录目标索引，传给模板
+#                 target_jump_index = jump_index
+#             except ValueError:
+#                 pass
+#
+#         page_obj = paginator.get_page(page_number)
+#
+#         # 获取当前页第一张图片在全局的序号 (例如第2页第一张是第301张)
+#         # page_obj.start_index() 返回的是 1-based 索引
+#         start_index = page_obj.start_index() if page_obj.start_index() else 1
+#
+#         context = {
+#             'folder_name': folder_name,
+#             'type': type,
+#             'page_obj': page_obj,
+#             'files': page_obj.object_list,
+#             'count': paginator.count,
+#             'start_index': start_index,
+#             'total_pages': paginator.num_pages,
+#             'current_page': page_obj.number,
+#             # 传给模板的新变量
+#             'target_jump_index': target_jump_index,
+#         }
+#         return render(request, template_name, context)
+#     # videos
+#     context = {
+#         'folder_name': folder_name,
+#         'type': type,
+#         'files': files,
+#         'count': len(files)
+#     }
+#     return render(request, template_name, context)
 @login_required
-def local_media_detail_view(request, type, folder_name):
-    """
-    展示具体文件夹内的图片或视频
-    :param type: 'images' 或 'videos'
-    :param folder_name: 文件夹名称
-    """
+def local_media_images_view(request, folder_name):
     base_dir = Path(settings.MEDIA_ROOT)
-
-    if type == 'images':
-        target_dir = base_dir / 'images' / 'local' / folder_name
-        valid_exts = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
-        template_name = 'comic/local_images_detail.html'  # 图片专用模板
-    elif type == 'videos':
-        target_dir = base_dir / 'videos' / folder_name
-        valid_exts = ['.mp4', '.webm', '.mov', '.mkv']
-        template_name = 'comic/local_videos_detail.html'  # 视频专用模板
-    else:
-        return redirect('local_media')
-
+    target_dir = base_dir / 'images' / 'local' / folder_name
+    valid_exts = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+    template_name = 'comic/local_images_detail.html'
     if not target_dir.exists():
         return render(request, 'comic/error.html', {'message': '文件夹不存在'})
-
     files = []
     # 获取所有符合后缀的文件
     raw_files = [f for f in target_dir.iterdir() if f.is_file() and f.suffix.lower() in valid_exts]
@@ -307,66 +381,177 @@ def local_media_detail_view(request, type, folder_name):
 
     for f in raw_files:
         # 构造 URL
-        if type == 'images':
-            url = f"{settings.MEDIA_URL}images/local/{folder_name}/{f.name}"
-        else:
-            url = f"{settings.MEDIA_URL}videos/{folder_name}/{f.name}"
+
+        url = f"{settings.MEDIA_URL}images/local/{folder_name}/{f.name}"
+
 
         files.append({
             'name': f.name,
             'url': url
         })
+    paginator = Paginator(files, IMAGE_PER_PAGE)
 
-    if type == 'images':
-        paginator = Paginator(files, IMAGE_PER_PAGE)
+    page_number = request.GET.get('page')
+    jump_to_index = request.GET.get('jump')
+    target_jump_index = None  # 新增：用于告诉模板要滚动到哪张图
 
-        page_number = request.GET.get('page')
-        jump_to_index = request.GET.get('jump')
-        target_jump_index = None  # 新增：用于告诉模板要滚动到哪张图
+    if jump_to_index:
+        try:
+            # 1. 计算目标页码
+            jump_index = max(1, int(jump_to_index))
+            # 确保不超过总数
+            jump_index = min(jump_index, len(files))
 
-        if jump_to_index:
-            try:
-                # 1. 计算目标页码
-                jump_index = max(1, int(jump_to_index))
-                # 确保不超过总数
-                jump_index = min(jump_index, len(files))
+            target_page = ((jump_index - 1) // IMAGE_PER_PAGE) + 1
+            page_number = target_page
 
-                target_page = ((jump_index - 1) // IMAGE_PER_PAGE) + 1
-                page_number = target_page
+            # 2. 记录目标索引，传给模板
+            target_jump_index = jump_index
+        except ValueError:
+            pass
 
-                # 2. 记录目标索引，传给模板
-                target_jump_index = jump_index
-            except ValueError:
-                pass
+    page_obj = paginator.get_page(page_number)
 
-        page_obj = paginator.get_page(page_number)
+    # 获取当前页第一张图片在全局的序号 (例如第2页第一张是第301张)
+    # page_obj.start_index() 返回的是 1-based 索引
+    start_index = page_obj.start_index() if page_obj.start_index() else 1
 
-        # 获取当前页第一张图片在全局的序号 (例如第2页第一张是第301张)
-        # page_obj.start_index() 返回的是 1-based 索引
-        start_index = page_obj.start_index() if page_obj.start_index() else 1
-
-        context = {
-            'folder_name': folder_name,
-            'type': type,
-            'page_obj': page_obj,
-            'files': page_obj.object_list,
-            'count': paginator.count,
-            'start_index': start_index,
-            'total_pages': paginator.num_pages,
-            'current_page': page_obj.number,
-            # 传给模板的新变量
-            'target_jump_index': target_jump_index,
-        }
-        return render(request, template_name, context)
-    # videos
     context = {
         'folder_name': folder_name,
-        'type': type,
-        'files': files,
-        'count': len(files)
+        'page_obj': page_obj,
+        'files': page_obj.object_list,
+        'count': paginator.count,
+        'start_index': start_index,
+        'total_pages': paginator.num_pages,
+        'current_page': page_obj.number,
+        # 传给模板的新变量
+        'target_jump_index': target_jump_index,
     }
     return render(request, template_name, context)
 
+
+@login_required
+def local_media_videos_view(request, folder_name):
+    # 此处接收 url 中的 type 如果 urls.py 中有定义的话，这里假设仅使用 folder_name
+    base_dir = Path(settings.MEDIA_ROOT)
+    target_dir = base_dir / 'videos' / folder_name
+    valid_exts = ['.mp4', '.webm', '.mov', '.mkv']
+    template_name = 'comic/local_videos_detail.html'
+
+    if not target_dir.exists():
+        return render(request, 'comic/error.html', {'message': '文件夹不存在'})
+
+    files = []
+    raw_files = [f for f in target_dir.iterdir() if f.is_file() and f.suffix.lower() in valid_exts]
+    # 文件名自然排序
+    raw_files.sort(key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x.name)])
+
+    for f in raw_files:
+        # 指向我们新建的视频流视图，而不是静态文件 URL
+        url = f"/local/stream/{folder_name}/{f.name}/"
+        files.append({
+            'name': f.name,
+            'url': url
+        })
+
+    context = {
+        'folder_name': folder_name,
+        'files': files,
+        'count': len(files),
+        # 传递第一个视频作为默认播放项
+        'first_video': files[0] if files else None
+    }
+    return render(request, template_name, context)
+
+
+@login_required
+def stream_video_view(request, folder_name, file_name):
+    """改进的视频流视图，支持正确的 Range 请求和分块传输"""
+    path = Path(settings.MEDIA_ROOT) / 'videos' / folder_name / file_name
+    if not path.exists():
+        raise Http404("视频文件不存在")
+
+    file_path = str(path)
+    file_size = os.path.getsize(file_path)
+
+    # 根据文件扩展名设置正确的 Content-Type
+    content_type = 'video/mp4'  # 默认
+    ext = os.path.splitext(file_name)[1].lower()
+    content_types = {
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm',
+        '.mov': 'video/quicktime',
+        '.mkv': 'video/x-matroska',
+        '.avi': 'video/x-msvideo',
+        '.wmv': 'video/x-ms-wmv',
+        '.flv': 'video/x-flv',
+        '.m4v': 'video/x-m4v',
+        '.mpg': 'video/mpeg',
+        '.mpeg': 'video/mpeg'
+    }
+    content_type = content_types.get(ext, 'application/octet-stream')
+
+    # 获取 Range 请求头
+    range_header = request.headers.get('range', None)
+
+    # 如果没有 Range 头，返回整个文件
+    if not range_header:
+        response = FileResponse(
+            open(file_path, 'rb'),
+            content_type=content_type,
+            as_attachment=False
+        )
+        response['Accept-Ranges'] = 'bytes'
+        response['Content-Length'] = str(file_size)
+        return response
+
+    # 解析 Range 头
+    byte_range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
+    if not byte_range_match:
+        return HttpResponse(status=400)  # Bad Request
+
+    start_byte = int(byte_range_match.group(1))
+    end_byte_match = byte_range_match.group(2)
+
+    # 计算结束字节位置
+    if end_byte_match:
+        end_byte = int(end_byte_match)
+    else:
+        end_byte = file_size - 1
+
+    # 验证范围
+    if start_byte >= file_size or end_byte >= file_size or start_byte > end_byte:
+        return HttpResponse(status=416)  # Range Not Satisfiable
+
+    # 计算内容长度
+    content_length = end_byte - start_byte + 1
+
+    # 使用生成器函数逐块读取文件
+    def file_iterator(file_path, start_byte, end_byte, chunk_size=8192):
+        """逐块读取文件的生成器函数"""
+        with open(file_path, 'rb') as file:
+            file.seek(start_byte)
+            remaining_bytes = content_length
+
+            while remaining_bytes > 0:
+                chunk = file.read(min(chunk_size, remaining_bytes))
+                if not chunk:
+                    break
+                remaining_bytes -= len(chunk)
+                yield chunk
+
+    # 创建流式响应
+    response = StreamingHttpResponse(
+        file_iterator(file_path, start_byte, end_byte),
+        status=206,
+        content_type=content_type
+    )
+
+    response['Content-Range'] = f'bytes {start_byte}-{end_byte}/{file_size}'
+    response['Accept-Ranges'] = 'bytes'
+    response['Content-Length'] = str(content_length)
+
+    return response
 @login_required
 def home_view(request):
     """
@@ -490,6 +675,9 @@ def search_detail_view(request, jm_id):
                 'description': getattr(album_detail, 'description', '暂无简介'),
                 'tags': getattr(album_detail, 'tags', []),
                 'cover_url': JmcomicText.get_album_cover_url(jm_id),
+                'likes':album_detail.likes,
+                'views': album_detail.views,
+                'comments_count':album_detail.comment_count,
                 # 关键：传递章节列表
                 'episode_list': album_detail.episode_list,
             },
@@ -527,7 +715,6 @@ def search_preview_album_view(request, jm_id):
 @login_required
 def search_preview_photo_view(request, photo_id):
     try:
-        client = JmOption.default().new_jm_client()
 
         # 1. 获取详情 (fetch_scramble_id=True 用于计算混淆)
         photo_detail = client.get_photo_detail(photo_id, True)

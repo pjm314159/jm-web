@@ -36,6 +36,19 @@
                     </a>
                 </div>
                 <div class="meta-item"><strong>JM ID:</strong> {{ album.jm_id }}</div>
+
+                <div class="meta-item">
+                    <svg class="meta-icon" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                    <strong>点赞:</strong> {{ album.likes }}
+                </div>
+                <div class="meta-item">
+                    <svg class="meta-icon" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+                    <strong>观看:</strong> {{ album.views }}
+                </div>
+                <div class="meta-item">
+                    <svg class="meta-icon" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+                    <strong>评论:</strong> {{ album.comments_count }}
+                </div>
             </div>
 
             <div style="margin: 1.5rem 0;">
@@ -56,12 +69,12 @@
                     {% if ep.0 %}
                         <a href="{% url 'search_preview_photo' photo_id=ep.0 %}" class="list-group-item"
                            style="display: block; padding: 12px; border-bottom: 1px solid #eee; text-decoration: none; color: #333;">
-                            📄 {{ ep.2 }} <span style="float: right; color: #999; font-size: 0.8rem;">{{ ep.0 }}</span>
+                             {{ ep.2 }} <span style="float: right; color: #999; font-size: 0.8rem;">{{ ep.0 }}</span>
                         </a>
                     {% elif ep.photo_id %}
                          <a href="{% url 'search_preview_photo' photo_id=ep.photo_id %}" class="list-group-item"
                            style="display: block; padding: 12px; border-bottom: 1px solid #eee; text-decoration: none; color: #333;">
-                            📄 {{ ep.title }}
+                             {{ ep.title }}
                         </a>
                     {% endif %}
                 {% empty %}
@@ -73,11 +86,10 @@
 </div>
 
 <script>
-    // 调用现有的爬虫 API
     async function startDownload(jmId) {
         const btn = document.getElementById('dl-btn');
         const msg = document.getElementById('status-msg');
-        
+
         if(btn) {
             btn.disabled = true;
             btn.innerText = "⏳ 提交中...";
@@ -85,7 +97,7 @@
         msg.innerHTML = '<span style="color: blue;">正在连接服务器...</span>';
 
         const formData = new FormData();
-        formData.append('input_id', jmId); // 这里的 key 必须对应 start_crawl_view 中的 input_id
+        formData.append('input_id', jmId);
 
         try {
             const response = await fetch('{% url "start_crawl_api" %}', {
@@ -96,7 +108,7 @@
                 body: formData
             });
             const result = await response.json();
-            
+
             if (response.ok) {
                 msg.innerHTML = `<span class="success">✅ 任务已提交 (ID: ${result.task_id})<br>请在"爬虫中心"或后台查看进度。</span>`;
                 if(btn) btn.innerText = "任务处理中";
@@ -114,11 +126,29 @@
 <style>
     .detail-layout { display: grid; grid-template-columns: 300px 1fr; gap: 3rem; }
     @media (max-width: 768px) { .detail-layout { grid-template-columns: 1fr; } }
-    {#.detail-cover img { width: 100%; border-radius: 8px; }#}
-    .detail-layout { display: grid; grid-template-columns: 300px 1fr; gap: 3rem; }
-    @media (max-width: 768px) { .detail-layout { grid-template-columns: 1fr; } }
     .detail-cover img { width: 100%; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 1.5rem 0; color: #6b7280; }
+
+    /* 修改 meta-grid 样式以适应图标 */
+    .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px 20px;
+        margin: 1.5rem 0;
+        color: #6b7280;
+    }
+    .meta-item {
+        display: flex;
+        align-items: center;
+        font-size: 0.95rem;
+    }
+    .meta-icon {
+        width: 16px;
+        height: 16px;
+        margin-right: 6px;
+        fill: #9ca3af; /* 统一使用较浅的灰色 */
+        flex-shrink: 0;
+    }
+
     .tag-pill { display: inline-block; background: #e5e7eb; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; margin-right: 8px; margin-bottom: 8px; }
     .description-box { background: #f9fafb; padding: 1rem; border-radius: 8px; line-height: 1.6; color: #4b5563; }
     .success { color: #059669; }
