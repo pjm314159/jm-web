@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # Redis service
+  redis:
+    image: redis:7-alpine
+    container_name: jm_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # Django Web service
+  web:
+    build: .
+    container_name: jm_django_web
+    command: sh -c "cd JmWebProject && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+      - media_volume:/app/JmWebProject/media
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=1
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Celery Worker service
+  celery_worker:
+    build: .
+    container_name: jm_celery_worker
+    command: sh -c "cd JmWebProject && celery -A JmWebProject worker --loglevel=info --pool=solo"
+    volumes:
+      - .:/app
+      - media_volume:/app/JmWebProject/media
+    environment:
+      - DEBUG=1
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - web
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  media_volume:

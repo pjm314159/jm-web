@@ -29,8 +29,9 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # 3. 爬取模块配置 (Celery)
 # 假设 Redis 运行在默认端口
-CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'  # Celery 消息代理
-CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/1' # Celery 结果存储
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL) #Celery 消息处理
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/1') # Celery 结果存储
 CELERY_TIMEZONE = 'Asia/Shanghai' # 设置时区
 
 # 4. 注册密钥 (硬编码，您可以考虑存放在环境变量中)
