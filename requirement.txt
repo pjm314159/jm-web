@@ -3,3 +3,5 @@ celery
 redis
 jmcomic
 pillow
+gunicorn
+dotenv

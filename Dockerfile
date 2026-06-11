@@ -1,40 +1,29 @@
-# Use an official Python runtime as the base image
-FROM python:3.11-slim
+# 使用 Python 3.9 基础镜像
+FROM python:3.9-slim
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    DJANGO_SETTINGS_MODULE=JmWebProject.settings
-
-# Set work directory
+# 设置工作目录（后续所有命令都在此目录执行）
 WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        gcc \
-        libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements file
+# 创建celery用户
+#RUN addgroup --system celery && adduser --system --group celery
+# 复制依赖文件（注意文件名是 requirement.txt 而非 requirements.txt）
 COPY requirement.txt /app/
 
-# Install Python dependencies
+# 安装 Python 依赖
 RUN pip install --no-cache-dir -r requirement.txt
 
-# Copy project
+# 复制整个项目代码到容器中
 COPY . /app/
 
-# Expose port
+# 切换到 Django 项目所在目录（manage.py 所在位置）
+WORKDIR /app/JmWebProject
+
+# 暴露开发服务器默认端口（run.md 中使用 7000）
 EXPOSE 8000
 
-# Collect static files
-RUN cd JmWebProject && python manage.py collectstatic --noinput
+# 复制启动脚本并赋予执行权限
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# Run migrations
-RUN cd JmWebProject && python manage.py migrate
-
-# Create superuser (optional - for development)
-# RUN cd JmWebProject && echo "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.create_superuser('admin', 'admin@example.com', 'admin')" | python manage.py shell
-
-# Run the application
-CMD ["sh", "-c", "cd JmWebProject && python manage.py runserver 0.0.0.0:8000"]
+# 设置容器启动入口
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["gunicorn", "JmWebProject.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]

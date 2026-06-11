@@ -1,12 +1,7 @@
-version: '3.8'
-
 services:
-  # Redis service
   redis:
-    image: redis:7-alpine
+    image: redis:alpine
     container_name: jm_redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -14,15 +9,18 @@ services:
   # Django Web service
   web:
     build: .
+    image: pjm314159/jm-web:latest
     container_name: jm_django_web
-    command: sh -c "cd JmWebProject && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
     volumes:
-      - .:/app
-      - media_volume:/app/JmWebProject/media
-    ports:
-      - "8000:8000"
+      - ./JmWebProject/media:/app/JmWebProject/media
+      - ./JmWebProject/db:/app/JmWebProject/db
+#    ports:
+#      - "8000:8000"
     environment:
-      - DEBUG=1
+      - ALLOWED_HOST=pjm3.dpdns.org
+      - "CSRF_TRUSTED_ORIGINS=http://pjm3.dpdns.org,https://pjm3.dpdns.org,http://127.0.0.1:8000"
+      - "CORS_ALLOWED_ORIGINS=https://pjm3.dpdns.org,http://127.0.0.1"
+      - REGISTRATION_SECRET_KEY=MING
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -33,13 +31,16 @@ services:
   # Celery Worker service
   celery_worker:
     build: .
+    image: pjm314159/jm_celery:latest
+    user: "root"
     container_name: jm_celery_worker
-    command: sh -c "cd JmWebProject && celery -A JmWebProject worker --loglevel=info --pool=solo"
     volumes:
-      - .:/app
-      - media_volume:/app/JmWebProject/media
+      - ./JmWebProject/media:/app/JmWebProject/media
+      - ./JmWebProject/db:/app/JmWebProject/db
+    command: celery -A JmWebProject worker --loglevel=info --pool=threads
     environment:
-      - DEBUG=1
+      - DEBUG=0
+      - ALLOWED_HOST=119.91.69.30
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -48,6 +49,19 @@ services:
       - web
     restart: unless-stopped
 
+  nginx:
+    image: nginx:latest
+    container_name: jm_nginx
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./JmWebProject/static:/static
+      - ./JmWebProject/media:/app/JmWebProject/media
+    ports:
+      - "8000:80"
+    depends_on:
+      - web
+    restart: unless-stopped
+
 volumes:
   redis_data:
-  media_volume:
+  static_volume:

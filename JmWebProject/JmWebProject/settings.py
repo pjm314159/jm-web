@@ -10,8 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
-from pathlib import Path
-# settings.py
+DEBUG = False
 
 # 1. 登录模块配置
 # 登录信息保存7天 (7天 * 24小时 * 60分钟 * 60秒 = 604800秒)
@@ -22,7 +21,6 @@ AUTH_USER_MODEL = 'user.User'
 # 2. 媒体文件配置 (用于存储爬取图片)
 import os
 from pathlib import Path
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 # 所有媒体文件（图片、视频）将存放在项目的 media 目录下
 MEDIA_URL = '/media/'
@@ -35,7 +33,7 @@ CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localho
 CELERY_TIMEZONE = 'Asia/Shanghai' # 设置时区
 
 # 4. 注册密钥 (硬编码，您可以考虑存放在环境变量中)
-REGISTRATION_SECRET_KEY = "MING"
+REGISTRATION_SECRET_KEY = os.getenv('REGISTRATION_SECRET_KEY',"MING")
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -46,10 +44,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-jnjgzo5%d43(iyjp3zsbc)^($zq@nh)kx0vfbl&6fm9_z*u+sf'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
-ALLOWED_HOSTS = ['pjm3.dpdns.org',"127.0.0.1"]
+ALLOWED_HOSTS = [os.getenv("ALLOWED_HOST"),"127.0.0.1"]
+print(ALLOWED_HOSTS)
 # security
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
@@ -67,6 +64,8 @@ INSTALLED_APPS = [
     'comic',
 ]
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -76,15 +75,9 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
-CSRF_TRUSTED_ORIGINS = [
-    'https://pjm3.dpdns.org',
-    'http://pjm3.dpdns.org',
-    "http://127.0.0.1"
-]
-CORS_ALLOWED_ORIGINS = [
-    "https://pjm3.dpdns.org",
-    "http://127.0.0.1"
-]
+CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://127.0.0.1,http://127.0.0.1:8000").split(",")
+CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://127.0.0.1,http://127.0.0.1:8000").split(",")
+print(CORS_ALLOWED_ORIGINS,CSRF_TRUSTED_ORIGINS)
 ROOT_URLCONF = 'JmWebProject.urls'
 
 TEMPLATES = [
@@ -112,7 +105,7 @@ WSGI_APPLICATION = 'JmWebProject.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': BASE_DIR / 'db/db.sqlite3',
     }
 }
 
@@ -161,6 +154,25 @@ LOGIN_URL = '/auth/login/'
 
 # 告诉 Django 登录成功后跳转到首页 (name='index')
 LOGIN_REDIRECT_URL = '/'
-
 LOGOUT_REDIRECT_URL = '/auth/login/'
 
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',  # 或 'DEBUG' 获取更详细的信息
+    },
+    'loggers': {
+        'django.request': {  # 记录请求相关日志
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}

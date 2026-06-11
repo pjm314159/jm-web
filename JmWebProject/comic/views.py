@@ -666,7 +666,6 @@ def search_detail_view(request, jm_id):
             author = album_detail.authors[0] if len(album_detail.authors) > 0 else "未知"
         elif hasattr(album_detail, 'author'):
             author = album_detail.author
-
         context = {
             'album': {
                 'jm_id': jm_id,
