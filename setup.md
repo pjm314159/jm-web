@@ -38,7 +38,7 @@ python -c "from django.core.management.utils import get_random_secret_key; print
 ## 3. 安装依赖
 
 ```bash
-pip install -r requirement.txt
+pip install -r requirements.txt
 ```
 
 ## 4. 数据库迁移

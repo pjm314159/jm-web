@@ -1,8 +1,6 @@
 # comic/urls.py
-from django.template.defaulttags import url
 from django.urls import path
 from . import views
-from django.views.generic.base import RedirectView
 urlpatterns = [
     # 1. 新首页 (Hub)
     path('', views.home_view, name='index'),

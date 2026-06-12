@@ -5,11 +5,10 @@ FROM python:3.9-slim
 WORKDIR /app
 # 创建celery用户
 #RUN addgroup --system celery && adduser --system --group celery
-# 复制依赖文件（注意文件名是 requirement.txt 而非 requirements.txt）
-COPY requirement.txt /app/
+COPY requirements.txt /app/
 
 # 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirement.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制整个项目代码到容器中
 COPY . /app/

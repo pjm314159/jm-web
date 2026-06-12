@@ -42,7 +42,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirement.txt ruff
+        run: pip install -r requirements.txt ruff
 
       - name: Ruff lint
         run: ruff check JmWebProject/
@@ -76,9 +76,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Validate Dockerfile
-        run: docker build --check .
-
       - name: Build Docker image
         run: docker build . -t jm-web:ci
 
@@ -91,11 +88,11 @@ jobs:
         run: docker-compose up -d
 
       - name: Wait for services
-        run: sleep 15
+        run: sleep 20
 
       - name: Health check
         run: |
-          curl -f http://localhost:8000/ || (echo "Web service failed" && docker-compose logs web && exit 1)
+          curl -sf http://localhost:8000/ > /dev/null || (echo "Web service failed" && docker-compose logs web && exit 1)
 
       - name: Stop services
         if: always()

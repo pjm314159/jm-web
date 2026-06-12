@@ -33,7 +33,7 @@ def sanitize_filename(name: str, default: str = "file", max_length: int = 255) -
     清理字符串，使其可以作为安全的文件名，同时避免 URL 解析错误和非法访问。
 
     处理内容：
-    - 替换 Windows 非法字符: \ / : * ? " < > |
+    - 替换 Windows 非法字符: \\ / : * ? " < > |
     - 替换 URL 保留字符: # & = + % ; @ $ (等，避免参数解析)
     - 替换路径遍历风险: 连续的点号或斜杠会被处理
     - 去除控制字符 (ASCII 0-31, 127)
@@ -145,7 +145,6 @@ class Task:
     def __next__(self):
         try:
             self.p = next(self.photo_detail_iter)
-            filename = self.p.filename
             self.filepath = os.path.join(self.save_dir_abs, self.p.filename)
         except StopIteration:
             raise StopIteration
@@ -223,7 +222,8 @@ def crawl_jm_task(jm_type, jm_id):
     if jm_type == 'album':
         # 1. 保存元数据
         album_obj, album_detail = save_or_update_album_meta(jm_id)
-        if not album_obj: return "Album metadata failed"
+        if not album_obj:
+            return "Album metadata failed"
         # 2. 下载封面
 
         # 规划封面保存路径: media/images/jmcomic/[本子名]/cover.jpg
@@ -278,7 +278,8 @@ def crawl_jm_task(jm_type, jm_id):
 
         # 2. 先保存所属 Album 的元数据 (保证外键存在)
         album_obj, _ = save_or_update_album_meta(target_album_id)
-        if not album_obj: return "Parent Album failed"
+        if not album_obj:
+            return "Parent Album failed"
         # 2.5. !!! 关键修正：单独下载 Photo 时，也尝试下载封面 !!!
         if not album_obj.cover_path:
             # 规划封面路径（与上面 Album 场景相同）

@@ -12,7 +12,7 @@ import re
 import datetime
 from .models import Album, Photo
 from .tasks import sanitize_filename, get_jm_client  # 复用 tasks 中的清洗函数和 client 获取函数
-from jmcomic import JmSearchPage, JmcomicText, JmImageTool,create_option_by_file  # 修正 jmcomic 导入
+from jmcomic import JmSearchPage, JmcomicText, JmImageTool
 from .tasks import crawl_jm_task
 from .utils import parse_jm_input, scan_local_media_folders
 
@@ -341,7 +341,6 @@ IMAGE_PER_PAGE = 300 # 每页显示 300 张图片
 def local_media_images_view(request, folder_name):
     base_dir = Path(settings.MEDIA_ROOT)
     target_dir = base_dir / 'images' / 'local' / folder_name
-    valid_exts = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
     template_name = 'comic/local_images_detail.html'
     if not target_dir.exists():
         return render(request, 'comic/error.html', {'message': '文件夹不存在'})
@@ -400,7 +399,6 @@ def local_media_videos_view(request, folder_name):
     # 此处接收 url 中的 type 如果 urls.py 中有定义的话，这里假设仅使用 folder_name
     base_dir = Path(settings.MEDIA_ROOT)
     target_dir = base_dir / 'videos' / folder_name
-    valid_exts = ['.mp4', '.webm', '.mov', '.mkv']
     template_name = 'comic/local_videos_detail.html'
 
     if not target_dir.exists():
@@ -585,7 +583,7 @@ def search_view(request):
                     try:
                         ts = int(info['update_at'])
                         update_time = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
-                    except:
+                    except Exception:
                         pass
 
                 # 3. 获取封面
@@ -719,7 +717,7 @@ def search_preview_photo_view(request, photo_id):
         if target_jump:
             try:
                 page_number = (int(target_jump) - 1) // IMAGES_PER_PAGE + 1
-            except:
+            except Exception:
                 pass
 
         page_obj = paginator.get_page(page_number)

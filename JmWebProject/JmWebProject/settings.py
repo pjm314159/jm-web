@@ -1,3 +1,8 @@
+import os
+from pathlib import Path
+
+from django.db.backends.signals import connection_created
+
 """
 Django settings for JmWebProject project.
 
@@ -13,24 +18,19 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 DEBUG = False
 
 # 1. 登录模块配置
-# 登录信息保存7天 (7天 * 24小时 * 60分钟 * 60秒 = 604800秒)
 SESSION_COOKIE_AGE = 604800
-# 允许自定义用户模型
 AUTH_USER_MODEL = 'user.User'
 
 # 2. 媒体文件配置 (用于存储爬取图片)
-import os
-from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
-# 所有媒体文件（图片、视频）将存放在项目的 media 目录下
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
 # 3. 爬取模块配置 (Celery)
-# 假设 Redis 运行在默认端口
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL) #Celery 消息处理
-CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/1') # Celery 结果存储
-CELERY_TIMEZONE = 'Asia/Shanghai' # 设置时区
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL)
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/1')
+CELERY_TIMEZONE = 'Asia/Shanghai'
 
 # Celery Beat 定时任务配置
 CELERY_BEAT_SCHEDULE = {
@@ -59,9 +59,6 @@ SESSION_SAVE_EVERY_REQUEST = False
 REGISTRATION_SECRET_KEY = os.getenv('REGISTRATION_SECRET_KEY')
 if not REGISTRATION_SECRET_KEY:
     raise RuntimeError("REGISTRATION_SECRET_KEY environment variable is required")
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
@@ -71,7 +68,6 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-jnjgzo5%d43(iy
 
 
 ALLOWED_HOSTS = [os.getenv("ALLOWED_HOST"),"127.0.0.1"]
-print(ALLOWED_HOSTS)
 # security
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
@@ -104,7 +100,6 @@ MIDDLEWARE = [
 ]
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://127.0.0.1,http://127.0.0.1:8000").split(",")
 CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://127.0.0.1,http://127.0.0.1:8000").split(",")
-print(CORS_ALLOWED_ORIGINS,CSRF_TRUSTED_ORIGINS)
 ROOT_URLCONF = 'JmWebProject.urls'
 
 TEMPLATES = [
@@ -150,7 +145,6 @@ def _set_sqlite_pragma(sender, connection, **kwargs):
         cursor.execute('PRAGMA busy_timeout=5000;')
         cursor.execute('PRAGMA temp_store=MEMORY;')
 
-from django.db.backends.signals import connection_created
 connection_created.connect(_set_sqlite_pragma)
 
 
