@@ -86,7 +86,12 @@ jobs:
           docker compose config
 
       - name: Start services
-        run: docker compose up -d
+        run: |
+          cp .env.example .env
+          sed -i 's/ALLOWED_HOST=.*/ALLOWED_HOST=localhost/' .env
+          sed -i 's/DJANGO_SECRET_KEY=.*/DJANGO_SECRET_KEY=ci-test-key-not-for-production/' .env
+          sed -i 's/REGISTRATION_SECRET_KEY=.*/REGISTRATION_SECRET_KEY=ci-test-reg/' .env
+          docker compose up -d
 
       - name: Wait for services
         run: sleep 20

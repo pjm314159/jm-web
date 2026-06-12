@@ -67,7 +67,7 @@ if not REGISTRATION_SECRET_KEY:
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-jnjgzo5%d43(iyjp3zsbc)^($zq@nh)kx0vfbl&6fm9_z*u+sf')
 
 
-ALLOWED_HOSTS = [os.getenv("ALLOWED_HOST"),"127.0.0.1"]
+ALLOWED_HOSTS = [os.getenv("ALLOWED_HOST"), "127.0.0.1", "localhost"]
 # security
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
