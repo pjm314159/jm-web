@@ -16,11 +16,9 @@ services:
       - ./JmWebProject/db:/app/JmWebProject/db
 #    ports:
 #      - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - ALLOWED_HOST=pjm3.dpdns.org
-      - "CSRF_TRUSTED_ORIGINS=http://pjm3.dpdns.org,https://pjm3.dpdns.org,http://127.0.0.1:8000"
-      - "CORS_ALLOWED_ORIGINS=https://pjm3.dpdns.org,http://127.0.0.1"
-      - REGISTRATION_SECRET_KEY=MING
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -38,15 +36,34 @@ services:
       - ./JmWebProject/media:/app/JmWebProject/media
       - ./JmWebProject/db:/app/JmWebProject/db
     command: celery -A JmWebProject worker --loglevel=info --pool=threads
+    env_file:
+      - .env
     environment:
-      - DEBUG=0
-      - ALLOWED_HOST=119.91.69.30
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
       - redis
       - web
+    restart: unless-stopped
+
+  # Celery Beat 定时任务调度器
+  celery_beat:
+    build: .
+    image: pjm314159/jm_celery:latest
+    container_name: jm_celery_beat
+    volumes:
+      - ./JmWebProject/media:/app/JmWebProject/media
+      - ./JmWebProject/db:/app/JmWebProject/db
+    command: celery -A JmWebProject beat --loglevel=info
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
     restart: unless-stopped
 
   nginx:

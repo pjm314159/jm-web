@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Django
+db.sqlite3
+JmWebProject/db/
+JmWebProject/staticfiles/
+
+# Media (大文件，不提交)
+JmWebProject/media/images/jmcomic/
+JmWebProject/media/images/local/
+JmWebProject/media/videos/
+
+# 环境变量（含密钥，不提交）
+.env
+
+# IDE
+.idea/
+
+# 临时文件
+.temp/
+.workbuddy/
+temp_settings.py
+*.tmp
+
+# Docker 生成的文件
+celerybeat-schedule

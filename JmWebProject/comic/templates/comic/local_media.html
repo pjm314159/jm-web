@@ -96,8 +96,12 @@
 </style>
 
 <div class="media-library-container">
-    <div style="margin-bottom: 30px;">
+    <div style="margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center;">
         <h1 style="color: #111827; margin: 0;">本地资源库</h1>
+        <form method="post" action="{% url 'local_media_refresh' %}" style="margin:0;">
+            {% csrf_token %}
+            <button type="submit" style="padding: 8px 16px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; color: #374151; cursor: pointer; font-size: 0.85rem;">刷新缓存</button>
+        </form>
     </div>
 
     <div class="section-title">图片相册</div>

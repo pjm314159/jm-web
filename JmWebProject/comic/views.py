@@ -2,6 +2,7 @@ from django.http import JsonResponse, HttpResponse, Http404, FileResponse, Strea
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.core.cache import cache
 from django.conf import settings
 from django.http import HttpResponseForbidden
 from pathlib import Path
@@ -10,15 +11,11 @@ import shutil  # 用于递归删除文件夹
 import re
 import datetime
 from .models import Album, Photo
-from .tasks import sanitize_filename  # 复用 tasks 中的清洗函数，确保路径一致
+from .tasks import sanitize_filename, get_jm_client  # 复用 tasks 中的清洗函数和 client 获取函数
 from jmcomic import JmSearchPage, JmcomicText, JmImageTool,create_option_by_file  # 修正 jmcomic 导入
 from .tasks import crawl_jm_task
-from .utils import parse_jm_input
+from .utils import parse_jm_input, scan_local_media_folders
 
-# 初始化客户端
-# client = create_option_by_file("comic/settings/jm-option.yml").new_jm_client()
-from jmcomic import JmOption
-client = JmOption.default().new_jm_client()
 # ----------------------------------------------------
 # 1. 本子总览页 (Card UI)
 # ----------------------------------------------------
@@ -214,59 +211,35 @@ def local_media_view(request):
     """
     展示 media/images/local 和 media/videos 下的子文件夹列表
     """
-    base_dir = Path(settings.MEDIA_ROOT)
-    local_images_dir = base_dir / 'images' / 'local'
-    image_albums = []
+    # 检查缓存
+    cache_key = 'local_media_folders'
+    context = cache.get(cache_key)
 
-    if local_images_dir.exists():
-        for folder in local_images_dir.iterdir():
-            if folder.is_dir():
-                cover_url = None
-                image_count = 0
+    if context is None:
+        # 保底：缓存 miss 时扫描目录并填充缓存
+        image_albums, video_folders = scan_local_media_folders()
+        context = {
+            'image_albums': image_albums,
+            'video_folders': video_folders,
+        }
 
-                # 寻找并排序所有图片文件
-                image_files = []
-                for f in folder.iterdir():
-                    if f.is_file() and f.suffix.lower() in ['.jpg', '.jpeg', '.png', '.webp', '.gif']:
-                        image_files.append(f)
-
-                # 对文件名进行自然排序，确保 "第一张" 准确
-                image_files.sort(key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x.name)])
-
-                image_count = len(image_files)
-
-                # !!! 关键修正：将第一张图片设置为封面 !!!
-                if image_files:
-                    first_file = image_files[0]
-                    # 构造 MEDIA_URL 相对路径: /media/images/local/文件夹名/文件名
-                    cover_url = f"{settings.MEDIA_URL}images/local/{folder.name}/{first_file.name}"
-
-                image_albums.append({
-                    'name': folder.name,
-                    'count': image_count,
-                    'cover_url': cover_url,
-                    'folder_name': folder.name
-                })
-
-    # 2. 扫描视频文件夹
-    local_videos_dir = base_dir / 'videos'
-    video_folders = []
-
-    if local_videos_dir.exists():
-        for folder in local_videos_dir.iterdir():
-            if folder.is_dir():
-                video_count = sum(1 for f in folder.iterdir() if f.suffix.lower() in ['.mp4', '.webm', '.mov'])
-                video_folders.append({
-                    'name': folder.name,
-                    'count': video_count,
-                    'folder_name': folder.name
-                })
-
-    context = {
-        'image_albums': image_albums,
-        'video_folders': video_folders,
-    }
     return render(request, 'comic/local_media.html', context)
+
+
+@login_required
+def local_media_refresh_view(request):
+    """手动清除本地媒体缓存并重新扫描目录"""
+    if request.method == 'POST':
+        try:
+            cache.delete_pattern('jmw:local_images:*')
+            cache.delete_pattern('jmw:local_videos:*')
+            cache.delete('jmw:local_media_folders')
+        except Exception:
+            pass
+        # 重新扫描并填充缓存
+        scan_local_media_folders()
+        return redirect('local_media')
+    return redirect('local_media')
 
 
 # ----------------------------------------------------
@@ -372,23 +345,15 @@ def local_media_images_view(request, folder_name):
     template_name = 'comic/local_images_detail.html'
     if not target_dir.exists():
         return render(request, 'comic/error.html', {'message': '文件夹不存在'})
-    files = []
-    # 获取所有符合后缀的文件
-    raw_files = [f for f in target_dir.iterdir() if f.is_file() and f.suffix.lower() in valid_exts]
 
-    # 文件名自然排序 (1.jpg, 2.jpg, 10.jpg)
-    raw_files.sort(key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x.name)])
+    # 从缓存获取文件列表
+    cache_key = f'local_images:{folder_name}'
+    files = cache.get(cache_key)
 
-    for f in raw_files:
-        # 构造 URL
-
-        url = f"{settings.MEDIA_URL}images/local/{folder_name}/{f.name}"
-
-
-        files.append({
-            'name': f.name,
-            'url': url
-        })
+    if files is None:
+        # 保底：缓存 miss 时扫描整个目录并填充缓存
+        scan_local_media_folders()
+        files = cache.get(cache_key, [])
     paginator = Paginator(files, IMAGE_PER_PAGE)
 
     page_number = request.GET.get('page')
@@ -441,18 +406,14 @@ def local_media_videos_view(request, folder_name):
     if not target_dir.exists():
         return render(request, 'comic/error.html', {'message': '文件夹不存在'})
 
-    files = []
-    raw_files = [f for f in target_dir.iterdir() if f.is_file() and f.suffix.lower() in valid_exts]
-    # 文件名自然排序
-    raw_files.sort(key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x.name)])
+    # 从缓存获取文件列表
+    cache_key = f'local_videos:{folder_name}'
+    files = cache.get(cache_key)
 
-    for f in raw_files:
-        # 指向我们新建的视频流视图，而不是静态文件 URL
-        url = f"/local/stream/{folder_name}/{f.name}/"
-        files.append({
-            'name': f.name,
-            'url': url
-        })
+    if files is None:
+        # 保底：缓存 miss 时扫描整个目录并填充缓存
+        scan_local_media_folders()
+        files = cache.get(cache_key, [])
 
     context = {
         'folder_name': folder_name,
@@ -584,22 +545,39 @@ def search_view(request):
     error_msg = None
 
     if query:
+        # 检查缓存
+        cache_key = f'search:{search_type}:{query}:{page_num}'
+        cached_context = cache.get(cache_key)
+
+        if cached_context:
+            return render(request, 'comic/search.html', cached_context)
+
         try:
             # 根据类型调用不同的 API
             jm_page: JmSearchPage = None
 
             if search_type == 'tag':
-                jm_page = client.search_tag(search_query=query, page=page_num)
+                jm_page = get_jm_client().search_tag(search_query=query, page=page_num)
             else:
                 # 默认关键字搜索
-                jm_page = client.search_site(search_query=query, page=page_num)
+                jm_page = get_jm_client().search_site(search_query=query, page=page_num)
 
             # 处理搜索结果
             # page.content 结构: [(album_id, info_dict), ...]
+            # 批量查询已下载的 album_id，避免 N+1 查询
+            album_ids = [album_id for album_id, _ in jm_page.content]
+            downloaded_ids = set(
+                Album.objects.filter(
+                    jm_id__in=album_ids,
+                    photos__is_downloaded=True
+                )
+                .values_list('jm_id', flat=True)
+                .distinct()
+            )
+
             for album_id, info in jm_page.content:
-                # 1. 检查本地是否已下载 (查询 Album 库)
-                # 只要数据库有记录且 photos 有已下载的，就算已存在
-                is_downloaded = Album.objects.filter(jm_id=album_id, photos__is_downloaded=True).exists()
+                # 1. 检查本地是否已下载 (O(1) 集合查找)
+                is_downloaded = album_id in downloaded_ids
 
                 # 2. 格式化时间戳
                 update_time = "未知"
@@ -647,13 +625,18 @@ def search_view(request):
         'pagination': pagination,
         'error_msg': error_msg,
     }
+
+    # 缓存搜索结果（仅在有查询且无错误时缓存）
+    if query and not error_msg:
+        cache.set(cache_key, context, timeout=120)
+
     return render(request, 'comic/search.html', context)
 
 
 @login_required
 def search_detail_view(request, jm_id):
     try:
-        album_detail = client.get_album_detail(jm_id)
+        album_detail = get_jm_client().get_album_detail(jm_id)
 
         # 检查本地状态
         local_album = Album.objects.filter(jm_id=jm_id).first()
@@ -684,9 +667,6 @@ def search_detail_view(request, jm_id):
         }
         return render(request, 'comic/search_detail.html', context)
     except Exception as e:
-        return render(request, 'comic/error.html', {'message': str(e)})
-
-    except Exception as e:
         return render(request, 'comic/error.html', {'message': f"获取详情失败: {str(e)}"})
 
 
@@ -699,7 +679,7 @@ def search_preview_album_view(request, jm_id):
     获取在线本子的详细章节列表
     """
     try:
-        album_detail = client.get_album_detail(jm_id)
+        album_detail = get_jm_client().get_album_detail(jm_id)
 
         context = {
             'album': album_detail,
@@ -716,7 +696,7 @@ def search_preview_photo_view(request, photo_id):
     try:
 
         # 1. 获取详情 (fetch_scramble_id=True 用于计算混淆)
-        photo_detail = client.get_photo_detail(photo_id, True)
+        photo_detail = get_jm_client().get_photo_detail(photo_id, True)
         scramble_id = photo_detail.scramble_id
 
         # 2. 预计算数据 (只传 URL 和 num 给前端)

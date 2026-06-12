@@ -5,13 +5,25 @@ import re
 import unicodedata
 from celery import shared_task
 from django.conf import settings
+from django.core.cache import cache
 from jmcomic import JmOption, multi_thread_launcher
 
 from .models import Album, Photo
+from .utils import scan_local_media_folders
 
-# 初始化客户端 (使用默认配置或从 settings 读取)
-option =  JmOption.default()
-client = option.new_jm_client()
+# 懒加载 JM Client（带 TTL，避免长时间运行后 session 过期）
+import time
+
+_jm_client = None
+_jm_client_created_at = 0
+_CLIENT_TTL = 3600  # 1 小时刷新
+
+def get_jm_client():
+    global _jm_client, _jm_client_created_at
+    if _jm_client is None or (time.time() - _jm_client_created_at) > _CLIENT_TTL:
+        _jm_client = JmOption.default().new_jm_client()
+        _jm_client_created_at = time.time()
+    return _jm_client
 
 # ----------------------------------------------------
 # 工具函数：路径清洗
@@ -77,10 +89,10 @@ def sanitize_filename(name: str, default: str = "file", max_length: int = 255) -
 # ----------------------------------------------------
 # 核心逻辑：保存/更新 Album 元数据
 # ----------------------------------------------------
-def save_or_update_album_meta(client, album_id):
+def save_or_update_album_meta(album_id):
     try:
         # 1. 获取详情对象
-        album_detail = client.get_album_detail(album_id)
+        album_detail = get_jm_client().get_album_detail(album_id)
 
         # 2. 提取数据 (健壮性处理)
         # 作者：API有 .author(str) 和 .authors(list)，优先用 list 拼接
@@ -102,6 +114,16 @@ def save_or_update_album_meta(client, album_id):
                 'total_episodes': len(album_detail.episode_list) if hasattr(album_detail, 'episode_list') else 0
             }
         )
+
+        # 清除搜索和本地媒体缓存
+        try:
+            cache.delete_pattern('jmw:search:*')
+            cache.delete_pattern('jmw:local_images:*')
+            cache.delete_pattern('jmw:local_videos:*')
+            cache.delete('jmw:local_media_folders')
+        except Exception:
+            pass
+
         return album_obj, album_detail
 
     except Exception as e:
@@ -129,14 +151,14 @@ class Task:
             raise StopIteration
         return self
 def download_single_image(image):
-    client.download_by_image_detail(image.p, image.filepath)
-def download_single_photo(client, photo_db_obj):
+    get_jm_client().download_by_image_detail(image.p, image.filepath)
+def download_single_photo(photo_db_obj):
     """
     实际执行图片下载的函数
     """
     try:
         # 1. 获取 Photo 详情对象 (这是一个 Iterable 的对象，包含 JmImageDetail)
-        photo_detail = client.get_photo_detail(photo_db_obj.jm_id, False)
+        photo_detail = get_jm_client().get_photo_detail(photo_db_obj.jm_id, False)
 
         # 2. 规划保存路径: media/images/jmcomic/[本子名]/[章节名]/
         safe_album_name = sanitize_filename(photo_db_obj.album.name)
@@ -169,19 +191,8 @@ def download_single_photo(client, photo_db_obj):
         )
 
         # 确保 image 迭代器和 page_arr 长度一致
-        for index, image in enumerate(photo_detail):
-            if index >= len(page_arr):
-                print("Warning: image iterator exceeded page_arr length. Stopping download.")
-                break
-
-            # !!! 关键修正：从 page_arr 获取完整的图片文件名 !!!
-            filename = page_arr[index]
-            filepath = os.path.join(save_dir_abs, filename)
-
-            # 使用用户提供的 API 下载
-            if not os.path.exists(filepath):
-                client.download_by_image_detail(image, filepath)
-                print(f"已下载: {filepath}")
+        # 注意：multi_thread_launcher 已经消费了 photo_detail 迭代器完成下载
+        # 此处仅更新数据库状态
 
         # 4. 更新 Photo 状态
         photo_db_obj.is_downloaded = True
@@ -211,7 +222,7 @@ def crawl_jm_task(jm_type, jm_id):
     # === 场景 1: 下载整个本子 (Album) ===
     if jm_type == 'album':
         # 1. 保存元数据
-        album_obj, album_detail = save_or_update_album_meta(client, jm_id)
+        album_obj, album_detail = save_or_update_album_meta(jm_id)
         if not album_obj: return "Album metadata failed"
         # 2. 下载封面
 
@@ -227,8 +238,8 @@ def crawl_jm_task(jm_type, jm_id):
         cover_filepath_rel = os.path.join('images', 'jmcomic', safe_album_name, cover_filename)
 
         try:
-            # 调用 client.download_album_cover API
-            client.download_album_cover(jm_id, cover_filepath_abs)
+            # 调用 get_jm_client().download_album_cover API
+            get_jm_client().download_album_cover(jm_id, cover_filepath_abs)
 
             # 更新数据库中的封面路径
             album_obj.cover_path = cover_filepath_rel
@@ -254,7 +265,7 @@ def crawl_jm_task(jm_type, jm_id):
                 )
 
                 # 执行下载
-                download_single_photo(client, photo_obj)
+                download_single_photo(photo_obj)
 
         return f"Album {album_obj.name} done."
 
@@ -262,11 +273,11 @@ def crawl_jm_task(jm_type, jm_id):
     elif jm_type == 'photo':
         # 1. 获取 Photo 详情以找到 Album ID
         # 注意：get_photo_detail 返回的对象包含 .album_id
-        temp_photo_detail = client.get_photo_detail(jm_id, False)
+        temp_photo_detail = get_jm_client().get_photo_detail(jm_id, False)
         target_album_id = temp_photo_detail.album_id
 
         # 2. 先保存所属 Album 的元数据 (保证外键存在)
-        album_obj, _ = save_or_update_album_meta(client, target_album_id)
+        album_obj, _ = save_or_update_album_meta(target_album_id)
         if not album_obj: return "Parent Album failed"
         # 2.5. !!! 关键修正：单独下载 Photo 时，也尝试下载封面 !!!
         if not album_obj.cover_path:
@@ -280,7 +291,7 @@ def crawl_jm_task(jm_type, jm_id):
             cover_filepath_rel = os.path.join('images', 'jmcomic', safe_album_name, 'cover.png')
 
             try:
-                client.download_album_cover(target_album_id, cover_filepath_abs)
+                get_jm_client().download_album_cover(target_album_id, cover_filepath_abs)
                 album_obj.cover_path = cover_filepath_rel
                 album_obj.save()
             except Exception as e:
@@ -297,6 +308,16 @@ def crawl_jm_task(jm_type, jm_id):
         )
 
         # 4. 执行下载
-        download_single_photo(client, photo_obj)
+        download_single_photo(photo_obj)
 
         return f"Photo {photo_obj.name} done."
+
+
+@shared_task(name='comic.tasks.scan_local_media_task')
+def scan_local_media_task():
+    """定时扫描本地媒体目录并更新 Redis 缓存"""
+    try:
+        scan_local_media_folders()
+        return "Local media scan completed"
+    except Exception as e:
+        return f"Local media scan failed: {e}"

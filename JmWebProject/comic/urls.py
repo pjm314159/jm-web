@@ -21,6 +21,7 @@ urlpatterns = [
 
     # 5. 本地模块
     path('local/', views.local_media_view, name='local_media'),
+    path('local/refresh/', views.local_media_refresh_view, name='local_media_refresh'),
     path('local/images/<str:folder_name>/', views.local_media_images_view, name='local_media_images'),
     path("local/videos/<str:folder_name>",views.local_media_videos_view, name='local_media_videos'),
 # 视频流式传输路由 (FileResponse)

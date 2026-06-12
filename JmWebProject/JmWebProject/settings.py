@@ -32,8 +32,33 @@ CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL) #Celery 消�
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/1') # Celery 结果存储
 CELERY_TIMEZONE = 'Asia/Shanghai' # 设置时区
 
+# Celery Beat 定时任务配置
+CELERY_BEAT_SCHEDULE = {
+    'scan-local-media-every-5-minutes': {
+        'task': 'comic.tasks.scan_local_media_task',
+        'schedule': 300,  # 每 300 秒（5 分钟）执行一次
+    },
+}
+
+# 5. 缓存配置 (Redis)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': os.environ.get('REDIS_URL', 'redis://localhost:6379/0'),
+        'TIMEOUT': 300,
+        'KEY_PREFIX': 'jmw',
+    }
+}
+
+# Session 使用缓存存储
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
+SESSION_SAVE_EVERY_REQUEST = False
+
 # 4. 注册密钥 (硬编码，您可以考虑存放在环境变量中)
-REGISTRATION_SECRET_KEY = os.getenv('REGISTRATION_SECRET_KEY',"MING")
+REGISTRATION_SECRET_KEY = os.getenv('REGISTRATION_SECRET_KEY')
+if not REGISTRATION_SECRET_KEY:
+    raise RuntimeError("REGISTRATION_SECRET_KEY environment variable is required")
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -42,7 +67,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-jnjgzo5%d43(iyjp3zsbc)^($zq@nh)kx0vfbl&6fm9_z*u+sf'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-jnjgzo5%d43(iyjp3zsbc)^($zq@nh)kx0vfbl&6fm9_z*u+sf')
 
 
 ALLOWED_HOSTS = [os.getenv("ALLOWED_HOST"),"127.0.0.1"]
@@ -68,7 +93,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'django.middleware.gzip.GZipMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.http.ConditionalGetMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -106,8 +133,25 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db/db.sqlite3',
+        'OPTIONS': {
+            'timeout': 5,
+        },
+        'CONN_MAX_AGE': 60,
     }
 }
+
+# SQLite PRAGMA 优化：通过信号在连接创建时执行
+def _set_sqlite_pragma(sender, connection, **kwargs):
+    if connection.vendor == 'sqlite':
+        cursor = connection.cursor()
+        cursor.execute('PRAGMA journal_mode=WAL;')
+        cursor.execute('PRAGMA synchronous=NORMAL;')
+        cursor.execute('PRAGMA cache_size=-20000;')
+        cursor.execute('PRAGMA busy_timeout=5000;')
+        cursor.execute('PRAGMA temp_store=MEMORY;')
+
+from django.db.backends.signals import connection_created
+connection_created.connect(_set_sqlite_pragma)
 
 
 # Password validation
@@ -145,6 +189,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'),
 ]

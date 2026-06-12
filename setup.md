@@ -19,7 +19,7 @@ run Celery<br>
 first console
 ```bash
 cd JmWebProject
-celery -A JmWebProject worker --loglevel=info --pool=threads
+celery -A JmWebProject worker --loglevel=info 
 ```
 ### Fourth
 second console

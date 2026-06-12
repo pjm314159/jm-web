@@ -36,11 +36,15 @@ class Photo(models.Model):
     name = models.CharField(max_length=255, verbose_name="章节名称")
     sort_index = models.IntegerField(default=0, verbose_name="章节序号")  # 对应 episode_list 中的 '1'
     # 下载状态
-    is_downloaded = models.BooleanField(default=False)
+    is_downloaded = models.BooleanField(default=False, db_index=True)
     save_path = models.CharField(max_length=512, blank=True, null=True, verbose_name="保存路径")
 
     class Meta:
         ordering = ['sort_index']
+        indexes = [
+            models.Index(fields=['album', 'is_downloaded']),
+            models.Index(fields=['album', 'sort_index']),
+        ]
 
     def __str__(self):
         return self.name
