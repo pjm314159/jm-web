@@ -14,7 +14,7 @@
 
 | 组件 | 技术 |
 |------|------|
-| Web 框架 | Django 4.2 |
+| Web 框架 | Django  |
 | 任务队列 | Celery + Redis |
 | 数据库 | SQLite (WAL 模式) |
 | 缓存 | Redis |

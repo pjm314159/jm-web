@@ -21,7 +21,6 @@ JmWebProject/media/videos/
 
 # 临时文件
 .temp/
-.workbuddy/
 temp_settings.py
 *.tmp
 
