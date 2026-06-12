@@ -83,7 +83,7 @@ jobs:
       - name: Validate docker-compose
         run: |
           cp .env.example .env
-          docker-compose config
+          docker compose config
 
       - name: Start services
         run: docker compose up -d
@@ -93,7 +93,7 @@ jobs:
 
       - name: Health check
         run: |
-          curl -sf http://localhost:8000/ > /dev/null || (echo "Web service failed" && docker-compose logs web && exit 1)
+          curl -sf http://localhost:8000/ > /dev/null || (echo "Web service failed" && docker compose logs web && exit 1)
 
       - name: Stop services
         if: always()
