@@ -60,6 +60,7 @@ jobs:
       - name: Run migrations
         run: |
           cd JmWebProject
+          mkdir -p db
           python manage.py migrate
 
       - name: Collect static
@@ -85,7 +86,7 @@ jobs:
           docker-compose config
 
       - name: Start services
-        run: docker-compose up -d
+        run: docker compose up -d
 
       - name: Wait for services
         run: sleep 20
@@ -96,4 +97,4 @@ jobs:
 
       - name: Stop services
         if: always()
-        run: docker-compose down
+        run: docker compose down
