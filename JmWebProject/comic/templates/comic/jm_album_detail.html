@@ -48,16 +48,27 @@
                 {{ album.description|default:"暂无简介" }}
             </div>
 
-            <h3 style="border-bottom: 2px solid var(--bg-color); padding-bottom: 10px; margin-top: 2rem;">
-                📂 章节列表
-            </h3>
+            <div class="chapter-header">
+                <h3 style="border-bottom: 2px solid var(--bg-color); padding-bottom: 10px; margin-top: 2rem;">
+                    📂 章节列表
+                </h3>
+                <button id="check-update-btn" class="btn btn-outline" style="padding: 6px 16px; font-size: 0.85rem;">
+                    🔍 检查更新
+                </button>
+            </div>
+
+            <!-- 检查更新结果区域 -->
+            <div id="update-result" style="margin-top: 1rem;"></div>
             
             {% if photos %}
                 <div class="chapter-grid">
                     {% for photo in photos %}
-                    <a href="{% url 'photo_detail' pk=photo.pk %}" class="chapter-btn {% if photo.is_downloaded %}downloaded{% endif %}">
+                    <a href="{% url 'photo_detail' pk=photo.pk %}" class="chapter-btn {% if photo.is_downloaded %}downloaded{% else %}not-downloaded{% endif %}">
                         <span class="chap-index">#{{ photo.sort_index }}</span>
                         <span class="chap-name">{{ photo.name }}</span>
+                        {% if not photo.is_downloaded %}
+                            <span class="new-badge">NEW</span>
+                        {% endif %}
                     </a>
                     {% endfor %}
                 </div>
@@ -67,6 +78,109 @@
         </main>
     </div>
 </div>
+
+<script>
+    document.getElementById('check-update-btn').addEventListener('click', async function() {
+        const btn = this;
+        const resultDiv = document.getElementById('update-result');
+        
+        btn.disabled = true;
+        btn.innerText = '⏳ 检测中...';
+        resultDiv.innerHTML = '<p style="color: var(--primary-color);">正在连接服务器获取远端章节列表...</p>';
+
+        try {
+            const response = await fetch('{% url "check_album_updates" pk=album.pk %}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}'
+                }
+            });
+            const result = await response.json();
+
+            if (response.ok) {
+                if (result.has_updates) {
+                    let episodesHtml = result.new_episodes.map(ep => 
+                        `<li>#${ep.index} ${ep.name} <span style="color:#999;font-size:0.8rem;">(ID: ${ep.photo_id})</span></li>`
+                    ).join('');
+                    resultDiv.innerHTML = `
+                        <div class="update-notice">
+                            <div class="update-notice-header">
+                                <span>🔄 发现 ${result.new_count} 个新章节</span>
+                                <button id="download-all-btn" class="btn btn-primary" style="padding: 6px 16px; font-size: 0.85rem;">
+                                    ⬇ 一键更新全部
+                                </button>
+                            </div>
+                            <ul style="margin-top: 10px; padding-left: 20px; color: var(--text-sub); font-size: 0.9rem;">
+                                ${episodesHtml}
+                            </ul>
+                            <div id="download-status" style="margin-top: 10px;"></div>
+                        </div>
+                    `;
+                    // 绑定一键下载事件
+                    document.getElementById('download-all-btn').addEventListener('click', function() {
+                        downloadAlbum('{{ album.jm_id }}');
+                    });
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="update-notice" style="background: #f0fdf4; border-color: #bbf7d0;">
+                            <span style="color: #059669;">✔ 已是最新 (本地 ${result.local_count} 章 / 远端 ${result.remote_count} 章)</span>
+                        </div>
+                    `;
+                }
+            } else {
+                resultDiv.innerHTML = `<div class="update-notice" style="background: #fef2f2; border-color: #fecaca;"><span style="color: #dc2626;">❌ ${result.error}</span></div>`;
+            }
+        } catch (err) {
+            resultDiv.innerHTML = `<div class="update-notice" style="background: #fef2f2; border-color: #fecaca;"><span style="color: #dc2626;">❌ 网络错误</span></div>`;
+        } finally {
+            btn.disabled = false;
+            btn.innerText = '🔍 检查更新';
+        }
+    });
+
+    // 一键下载 (复用爬虫接口，crawl_jm_task 会自动跳过已下载章节)
+    async function downloadAlbum(jmId) {
+        const btn = document.getElementById('download-all-btn');
+        const statusDiv = document.getElementById('download-status');
+        
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = '⏳ 下载中...';
+        }
+        if (statusDiv) {
+            statusDiv.innerHTML = '<span style="color: var(--primary-color);">正在提交下载任务...</span>';
+        }
+
+        const formData = new FormData();
+        formData.append('input_id', jmId);
+
+        try {
+            const response = await fetch('{% url "start_crawl_api" %}', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+                body: formData
+            });
+            const result = await response.json();
+
+            if (response.ok) {
+                if (statusDiv) {
+                    statusDiv.innerHTML = `<span style="color: #059669;">✅ 下载任务已提交 (ID: ${result.task_id})<br>请稍后刷新页面查看进度，已下载章节会被自动跳过。</span>`;
+                }
+                if (btn) { btn.innerText = '✅ 已提交'; }
+            } else {
+                if (statusDiv) {
+                    statusDiv.innerHTML = `<span style="color: #dc2626;">❌ 失败: ${result.error}</span>`;
+                }
+                if (btn) { btn.disabled = false; btn.innerText = '⬇ 一键更新全部'; }
+            }
+        } catch (err) {
+            if (statusDiv) {
+                statusDiv.innerHTML = `<span style="color: #dc2626;">❌ 网络错误</span>`;
+            }
+            if (btn) { btn.disabled = false; btn.innerText = '⬇ 一键更新全部'; }
+        }
+    }
+</script>
 
 <style>
     .detail-layout { display: grid; grid-template-columns: 300px 1fr; gap: 3rem; }
@@ -91,17 +205,50 @@
 
     .description-box { background: #f9fafb; padding: 1rem; border-radius: 8px; color: #4b5563; font-size: 0.95rem; line-height: 1.6; }
 
+    .chapter-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 2rem;
+    }
+
+    .update-notice {
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        border-radius: 8px;
+        padding: 1rem;
+    }
+
+    .update-notice-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
     .chapter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 1rem; }
 
     .chapter-btn {
-        display: flex; flex-direction: column; 
+        display: flex; flex-direction: column; position: relative;
         background: white; border: 1px solid #e5e7eb; padding: 10px;
         border-radius: 8px; text-decoration: none; color: var(--text-main);
         transition: all 0.2s;
     }
     .chapter-btn:hover { border-color: var(--primary-color); background: #eff6ff; }
+    /* 已下载：灰色调 */
+    .chapter-btn.downloaded { opacity: 0.7; }
+    .chapter-btn.downloaded .chap-name { color: var(--text-sub); }
+    /* 未下载：高亮 */
+    .chapter-btn.not-downloaded { border-color: #fbbf24; background: #fffbeb; }
     
     .chap-index { font-size: 0.8rem; color: var(--text-sub); font-weight: bold; }
     .chap-name { font-size: 0.95rem; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    
+    .new-badge {
+        position: absolute; top: -6px; right: -6px;
+        background: #f59e0b; color: white; font-size: 0.65rem;
+        padding: 2px 6px; border-radius: 10px; font-weight: bold;
+    }
 </style>
 {% endblock %}

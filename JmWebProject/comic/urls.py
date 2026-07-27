@@ -13,6 +13,7 @@ urlpatterns = [
     path('library/', views.jm_album_list_view, name='jm_album_list'),
     path('library/<int:pk>/', views.jm_album_detail_view, name='album_detail'),
     path('library/<int:pk>/delete/', views.album_delete_view, name='album_delete'),
+    path('library/<int:pk>/check-updates/', views.check_album_updates_view, name='check_album_updates'),
 
     # 4. 阅读页
     path('photo/<int:pk>/', views.jm_photo_detail_view, name='photo_detail'),

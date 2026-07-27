@@ -12,13 +12,23 @@
                 <img src="{{ album.cover_url }}" alt="{{ album.name }}" referrerpolicy="no-referrer">
             </div>
             <div class="action-box" style="margin-top: 1.5rem;">
-                {% if is_downloaded %}
-                    <button class="btn btn-block" style="background: #10b981; color: white; width: 100%; cursor: default;">
-                        ✔ 本地已存在
-                    </button>
-                {% else %}
+                {% if not is_downloaded %}
+                    {# 状态一：未下载 #}
                     <button onclick="startDownload('{{ album.jm_id }}')" id="dl-btn" class="btn btn-primary" style="width: 100%;">
                         🚀 添加下载任务
+                    </button>
+                {% elif has_updates %}
+                    {# 状态三：已下载但有更新 #}
+                    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px; text-align: center; margin-bottom: 10px;">
+                        <span style="color: #b45309; font-size: 0.9rem;">🔄 发现 {{ new_episode_count }} 个新章节</span>
+                    </div>
+                    <button onclick="startDownload('{{ album.jm_id }}')" id="dl-btn" class="btn btn-primary" style="width: 100%;">
+                        ⬇ 一键更新全部
+                    </button>
+                {% else %}
+                    {# 状态二：已下载且最新 #}
+                    <button class="btn btn-block" style="background: #10b981; color: white; width: 100%; cursor: default;">
+                        ✔ 已下载 (最新)
                     </button>
                 {% endif %}
                 <div id="status-msg" style="margin-top: 10px; font-size: 0.9rem; text-align: center;"></div>

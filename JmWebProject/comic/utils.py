@@ -73,7 +73,7 @@ def scan_local_media_folders():
                     {'name': f.name, 'url': f"{settings.MEDIA_URL}images/local/{folder.name}/{f.name}"}
                     for f in image_files
                 ]
-                cache.set(f'local_images:{folder.name}', files_list, timeout=None)
+                cache.set(f'jmw-local-images-{folder.name}', files_list, timeout=None)
 
     # 扫描视频文件夹
     local_videos_dir = base_dir / 'videos'
@@ -97,13 +97,13 @@ def scan_local_media_folders():
                     {'name': f.name, 'url': f"/local/stream/{folder.name}/{f.name}/"}
                     for f in sorted(video_files, key=lambda x: natural_sort_key(x.name))
                 ]
-                cache.set(f'local_videos:{folder.name}', files_list, timeout=None)
+                cache.set(f'jmw-local-videos-{folder.name}', files_list, timeout=None)
 
     # 缓存文件夹列表
     context = {
         'image_albums': image_albums,
         'video_folders': video_folders,
     }
-    cache.set('local_media_folders', context, timeout=None)
+    cache.set('jmw-local-media-folders', context, timeout=None)
 
     return image_albums, video_folders

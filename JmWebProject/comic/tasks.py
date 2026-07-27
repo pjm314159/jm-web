@@ -117,10 +117,10 @@ def save_or_update_album_meta(album_id):
 
         # 清除搜索和本地媒体缓存
         try:
-            cache.delete_pattern('jmw:search:*')
-            cache.delete_pattern('jmw:local_images:*')
-            cache.delete_pattern('jmw:local_videos:*')
-            cache.delete('jmw:local_media_folders')
+            cache.delete_pattern('jmw-search-*')
+            cache.delete_pattern('jmw-local-images-*')
+            cache.delete_pattern('jmw-local-videos-*')
+            cache.delete('jmw-local-media-folders')
         except Exception:
             pass
 
@@ -254,8 +254,8 @@ def crawl_jm_task(jm_type, jm_id):
                 p_id, p_index, p_name = photo_tuple[0], photo_tuple[1], photo_tuple[2]
                 if p_name == "":
                     p_name = p_index
-                # 创建/获取 Photo 记录
-                photo_obj, _ = Photo.objects.update_or_create(
+                # 获取或创建 Photo 记录 (已存在的不覆盖 is_downloaded/save_path)
+                photo_obj, created = Photo.objects.get_or_create(
                     jm_id=p_id,
                     defaults={
                         'album': album_obj,
@@ -264,8 +264,20 @@ def crawl_jm_task(jm_type, jm_id):
                     }
                 )
 
+                # 跳过已下载的章节，只下载新的
+                if photo_obj.is_downloaded:
+                    print(f"Skipping {p_id} - already downloaded")
+                    continue
+
                 # 执行下载
                 download_single_photo(photo_obj)
+
+        # 3. 更新 Redis 中的 episode 列表 (TTL 永久，供搜索页自动检测对比)
+        try:
+            episode_ids = [ep[0] for ep in album_detail.episode_list]
+            cache.set(f'jmw-album-episodes-{jm_id}', episode_ids, timeout=None)
+        except Exception as e:
+            print(f"Warning: Failed to update Redis episode list: {e}")
 
         return f"Album {album_obj.name} done."
 

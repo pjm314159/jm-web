@@ -49,8 +49,8 @@ def jm_album_detail_view(request, pk):
     """
     album = get_object_or_404(Album, pk=pk)
 
-    # 获取该本子下所有已下载的章节，按序号排序
-    photos = album.photos.filter(is_downloaded=True).order_by('sort_index')
+    # 获取该本子下所有章节 (含未下载)，按序号排序
+    photos = album.photos.all().order_by('sort_index')
 
     context = {
         'album': album,
@@ -89,7 +89,13 @@ def album_delete_view(request, pk):
     else:
         print(f"文件夹不存在，跳过物理删除: {album_dir}")
 
-    # --- 步骤 B: 删除数据库记录 ---
+    # --- 步骤 B: 删除 Redis 中的 episode 列表 ---
+    try:
+        cache.delete(f'jmw-album-episodes-{album.jm_id}')
+    except Exception:
+        pass
+
+    # --- 步骤 C: 删除数据库记录 ---
     # 由于 Photo 设置了 on_delete=models.CASCADE，删除 Album 会自动删除关联的 Photo
     album_name = album.name
     album.delete()
@@ -97,6 +103,60 @@ def album_delete_view(request, pk):
     print(f"已删除数据库记录: {album_name}")
 
     return redirect('jm_album_list')
+
+
+# ----------------------------------------------------
+# 3.5 检查 Album 更新 (本地页面手动检测)
+# ----------------------------------------------------
+@login_required
+def check_album_updates_view(request, pk):
+    """
+    手动检测远端是否有新章节：从数据库读取本地 Photo 列表，
+    拉取远端 episode_list 对比，返回新章节信息。
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    album = get_object_or_404(Album, pk=pk)
+
+    try:
+        # 1. 从数据库读取本地已有的章节 jm_id 集合
+        local_photo_ids = set(
+            album.photos.values_list('jm_id', flat=True)
+        )
+
+        # 2. 拉取远端 episode_list
+        album_detail = get_jm_client().get_album_detail(album.jm_id)
+        remote_episodes = album_detail.episode_list if hasattr(album_detail, 'episode_list') else []
+
+        # 3. 对比差集，找出新章节
+        remote_ids = {ep[0] for ep in remote_episodes if ep[0]}
+        new_episode_ids = remote_ids - local_photo_ids
+        new_episodes = [ep for ep in remote_episodes if ep[0] in new_episode_ids]
+
+        # 4. 更新 Redis 中的 episode 列表 (TTL 永久)
+        try:
+            cache.set(f'jmw-album-episodes-{album.jm_id}',
+                      list(remote_ids), timeout=None)
+        except Exception:
+            pass
+
+        # 5. 更新 album 元数据中的 total_episodes
+        album.total_episodes = len(remote_episodes)
+        album.save(update_fields=['total_episodes'])
+
+        return JsonResponse({
+            'has_updates': len(new_episodes) > 0,
+            'new_episodes': [
+                {'photo_id': ep[0], 'index': ep[1], 'name': ep[2] if ep[2] else str(ep[1])}
+                for ep in new_episodes
+            ],
+            'new_count': len(new_episodes),
+            'local_count': len(local_photo_ids),
+            'remote_count': len(remote_episodes),
+        })
+    except Exception as e:
+        return JsonResponse({'error': f'检测失败: {str(e)}'}, status=500)
 
 
 # ----------------------------------------------------
@@ -109,7 +169,6 @@ def jm_photo_detail_view(request, pk):
     """
     photo = get_object_or_404(Photo, pk=pk)
     album = photo.album
-
     # --- 1. 读取本地文件列表 ---
     if photo.save_path:
         full_dir_path = os.path.join(settings.MEDIA_ROOT, photo.save_path)
@@ -212,7 +271,7 @@ def local_media_view(request):
     展示 media/images/local 和 media/videos 下的子文件夹列表
     """
     # 检查缓存
-    cache_key = 'local_media_folders'
+    cache_key = 'jmw-local-media-folders'
     context = cache.get(cache_key)
 
     if context is None:
@@ -231,9 +290,9 @@ def local_media_refresh_view(request):
     """手动清除本地媒体缓存并重新扫描目录"""
     if request.method == 'POST':
         try:
-            cache.delete_pattern('jmw:local_images:*')
-            cache.delete_pattern('jmw:local_videos:*')
-            cache.delete('jmw:local_media_folders')
+            cache.delete_pattern('jmw-local-images-*')
+            cache.delete_pattern('jmw-local-videos-*')
+            cache.delete('jmw-local-media-folders')
         except Exception:
             pass
         # 重新扫描并填充缓存
@@ -346,7 +405,7 @@ def local_media_images_view(request, folder_name):
         return render(request, 'comic/error.html', {'message': '文件夹不存在'})
 
     # 从缓存获取文件列表
-    cache_key = f'local_images:{folder_name}'
+    cache_key = f'jmw-local-images-{folder_name}'
     files = cache.get(cache_key)
 
     if files is None:
@@ -405,7 +464,7 @@ def local_media_videos_view(request, folder_name):
         return render(request, 'comic/error.html', {'message': '文件夹不存在'})
 
     # 从缓存获取文件列表
-    cache_key = f'local_videos:{folder_name}'
+    cache_key = f'jmw-local-videos-{folder_name}'
     files = cache.get(cache_key)
 
     if files is None:
@@ -544,7 +603,7 @@ def search_view(request):
 
     if query:
         # 检查缓存
-        cache_key = f'search:{search_type}:{query}:{page_num}'
+        cache_key = f'jmw-search-{search_type}-{query}-{page_num}'
         cached_context = cache.get(cache_key)
 
         if cached_context:
@@ -640,6 +699,23 @@ def search_detail_view(request, jm_id):
         local_album = Album.objects.filter(jm_id=jm_id).first()
         is_downloaded = local_album.photos.filter(is_downloaded=True).exists() if local_album else False
 
+        # 自动检测更新：对比 Redis 中的本地 episode 列表与远端 episode_list
+        # 远端已拿到 episode_list，无需额外网络请求
+        new_episode_count = 0
+        has_updates = False
+        if is_downloaded:
+            remote_ids = {ep[0] for ep in album_detail.episode_list if ep[0]}
+            local_cached_ids = set(cache.get(f'jmw-album-episodes-{jm_id}', []) or [])
+            if local_cached_ids:
+                # 有缓存：对比差集
+                new_episode_count = len(remote_ids - local_cached_ids)
+                has_updates = new_episode_count > 0
+            else:
+                # 无缓存（旧数据）：对比数据库中的 Photo 数量
+                local_photo_count = local_album.photos.count() if local_album else 0
+                new_episode_count = len(remote_ids) - local_photo_count
+                has_updates = new_episode_count > 0
+
         # 处理作者
         author = "未知"
         if hasattr(album_detail, 'authors') and album_detail.authors:
@@ -662,6 +738,8 @@ def search_detail_view(request, jm_id):
                 'episode_list': album_detail.episode_list,
             },
             'is_downloaded': is_downloaded,
+            'has_updates': has_updates,
+            'new_episode_count': new_episode_count,
         }
         return render(request, 'comic/search_detail.html', context)
     except Exception as e:

@@ -25,4 +25,4 @@ RUN chmod +x /entrypoint.sh
 
 # 设置容器启动入口
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["gunicorn", "JmWebProject.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+CMD ["gunicorn", "JmWebProject.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "6"]
