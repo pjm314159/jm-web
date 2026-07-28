@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { getLocalMedia } from '../api/local'
@@ -24,7 +24,6 @@ function BackIcon({ className }: { className?: string }) {
 const PER_PAGE = 12
 
 export default function LocalImagesPage() {
-  const navigate = useNavigate()
   const [page, setPage] = useState(1)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['local-media'],
@@ -110,7 +109,7 @@ export default function LocalImagesPage() {
                   name={album.name}
                   count={album.count}
                   previewUrls={album.preview_urls}
-                  onClick={() => navigate(`/local/reader/${encodeURIComponent(album.folder_name)}`)}
+                  onClick={() => window.open(`/local/reader/${encodeURIComponent(album.folder_name)}`, '_blank')}
                 />
               </div>
             ))}

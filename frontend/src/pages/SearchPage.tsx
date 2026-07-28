@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { searchJm, type SearchType } from '../api/search'
@@ -194,7 +194,6 @@ function SearchBar({ searchType, inputValue, onTypeChange, onInputChange, onSubm
 }
 
 export default function SearchPage() {
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
   // 搜索状态以 URL 查询参数为准（q/type/page）
@@ -322,7 +321,7 @@ export default function SearchPage() {
                 coverUrl={album.cover_url}
                 meta={album.update_time}
                 downloaded={album.is_downloaded}
-                onClick={() => navigate(`/search/album/${album.jm_id}`)}
+                onClick={() => window.open(`/search/album/${album.jm_id}`, '_blank')}
                 onTagClick={searchByTag}
                 onAuthorClick={searchByAuthor}
               />

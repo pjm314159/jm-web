@@ -124,7 +124,7 @@ export default function LibraryPage() {
                 coverUrl={album.cover_url}
                 meta={formatDate(album.created_at)}
                 downloaded={false}
-                onClick={() => navigate(`/library/${album.id}`)}
+                onClick={() => window.open(`/library/${album.id}`, '_blank')}
                 onTagClick={searchByTag}
                 onAuthorClick={searchByAuthor}
               />

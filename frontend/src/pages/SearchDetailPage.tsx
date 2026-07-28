@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
+import { submitCrawl } from '../api/crawl'
 import { getSearchAlbumDetail } from '../api/search'
 
 /* ─── 图标 ──────────────────────────────────────────────── */
@@ -107,6 +108,22 @@ export default function SearchDetailPage() {
   const { jmId } = useParams<{ jmId: string }>()
   const navigate = useNavigate()
   const [epPage, setEpPage] = useState(1)
+  const [dlState, setDlState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [dlMsg, setDlMsg] = useState('')
+
+  const handleDownload = async () => {
+    if (!jmId || dlState === 'loading') return
+    setDlState('loading')
+    setDlMsg('')
+    try {
+      const res = await submitCrawl(jmId)
+      setDlState('success')
+      setDlMsg(res.message || '任务已提交')
+    } catch {
+      setDlState('error')
+      setDlMsg('提交失败，请稍后重试')
+    }
+  }
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['search-detail', jmId],
@@ -181,15 +198,23 @@ export default function SearchDetailPage() {
           {/* 下载按钮 */}
           <button
             type="button"
-            className={`flex items-center justify-center gap-2 rounded-2xl border px-6 py-3.5 text-sm font-bold shadow-lg backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:shadow-xl active:scale-95 ${
+            onClick={handleDownload}
+            disabled={dlState === 'loading'}
+            className={`flex items-center justify-center gap-2 rounded-2xl border px-6 py-3.5 text-sm font-bold shadow-lg backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:shadow-xl active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 ${
               is_downloaded
                 ? 'border-emerald-200/50 bg-emerald-50/50 text-emerald-600 hover:border-emerald-300/60 dark:border-emerald-500/20 dark:bg-emerald-950/30 dark:text-emerald-400'
                 : 'border-white/40 bg-white/50 text-indigo-600 hover:border-indigo-300/60 dark:border-white/10 dark:bg-slate-800/60 dark:text-indigo-400'
             }`}
           >
             <DownloadIcon className="h-5 w-5" />
-            {is_downloaded ? '已下载（可更新）' : '添加下载任务'}
+            {dlState === 'loading' ? '提交中…' : is_downloaded ? '已下载（可更新）' : '添加下载任务'}
           </button>
+          {/* 提交反馈 */}
+          {dlMsg && (
+            <p className={`text-center text-xs font-medium ${dlState === 'error' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+              {dlMsg}
+            </p>
+          )}
         </aside>
 
         {/* ─── 右侧：详情 + 章节 ─── */}
