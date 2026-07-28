@@ -1,28 +1,34 @@
-# 使用 Python 3.9 基础镜像
-FROM python:3.9-slim
+# ═══ Python 后端（Django + Celery） ═════════════════
+FROM python:3.12-slim
 
-# 设置工作目录（后续所有命令都在此目录执行）
+# 安装 uv（从官方镜像复制二进制）
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# 设置工作目录
 WORKDIR /app
-# 创建celery用户
-#RUN addgroup --system celery && adduser --system --group celery
-COPY requirements.txt /app/
 
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+# 先复制依赖清单，利用 Docker 层缓存
+COPY pyproject.toml uv.lock ./
+
+# 按锁文件安装依赖（生产：不含 dev 组，不安装项目本身）
+RUN uv sync --locked --no-group dev --no-editable
 
 # 复制整个项目代码到容器中
 COPY . /app/
 
+# 将虚拟环境加入 PATH（gunicorn / python 均走 .venv）
+ENV PATH="/app/.venv/bin:$PATH"
+
 # 切换到 Django 项目所在目录（manage.py 所在位置）
 WORKDIR /app/JmWebProject
 
-# 暴露开发服务器默认端口（run.md 中使用 7000）
+# 暴露端口
 EXPOSE 8000
 
-# 复制启动脚本并赋予执行权限
+# 复制启动脚本并赋予执行权限（sed 防 Windows CRLF）
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # 设置容器启动入口
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["gunicorn", "JmWebProject.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "6"]
+CMD ["gunicorn", "JmWebProject.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2"]

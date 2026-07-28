@@ -2,9 +2,11 @@ services:
   redis:
     image: redis:alpine
     container_name: jm_redis
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    mem_limit: 192m
 
   # Django Web service
   web:
@@ -13,20 +15,20 @@ services:
     container_name: jm_django_web
     volumes:
       - ./JmWebProject/media:/app/JmWebProject/media
-      - ./JmWebProject/db:/app/JmWebProject/db
-#    ports:
-#      - "8000:8000"
+      - db_data:/app/JmWebProject/db
     env_file:
       - .env
     environment:
+      - DJANGO_DEBUG=false
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
       - redis
     restart: unless-stopped
+    mem_limit: 512m
 
-  # Celery Worker service
+  # Celery Worker + Beat（内嵌定时调度）
   celery_worker:
     build: .
     image: pjm314159/jm_celery:latest
@@ -34,8 +36,8 @@ services:
     container_name: jm_celery_worker
     volumes:
       - ./JmWebProject/media:/app/JmWebProject/media
-      - ./JmWebProject/db:/app/JmWebProject/db
-    command: celery -A JmWebProject worker --loglevel=info --pool=threads
+      - db_data:/app/JmWebProject/db
+    command: celery -A JmWebProject worker --loglevel=info --pool=threads -B
     env_file:
       - .env
     environment:
@@ -46,32 +48,15 @@ services:
       - redis
       - web
     restart: unless-stopped
-
-  # Celery Beat 定时任务调度器
-  celery_beat:
-    build: .
-    image: pjm314159/jm_celery:latest
-    container_name: jm_celery_beat
-    volumes:
-      - ./JmWebProject/media:/app/JmWebProject/media
-      - ./JmWebProject/db:/app/JmWebProject/db
-    command: celery -A JmWebProject beat --loglevel=info
-    env_file:
-      - .env
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    depends_on:
-      - redis
-      - web
-    restart: unless-stopped
+    mem_limit: 1g
 
   nginx:
-    image: nginx:latest
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    image: pjm314159/jm-nginx:latest
     container_name: jm_nginx
     volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./JmWebProject/static:/static
       - ./JmWebProject/media:/app/JmWebProject/media
     ports:
@@ -79,7 +64,8 @@ services:
     depends_on:
       - web
     restart: unless-stopped
+    mem_limit: 128m
 
 volumes:
   redis_data:
-  static_volume:
+  db_data:

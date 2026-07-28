@@ -14,15 +14,18 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.contrib import admin
-from django.urls import path, include
+
 from django.conf import settings
 from django.conf.urls.static import static
+from django.contrib import admin
+from django.urls import include, path
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('', include('comic.urls')), # 漫画/爬取模块
-    path('auth/', include('user.urls')), # 认证模块
+    path("admin/", admin.site.urls),
+    # 认证 API（阶段 1.2：register / token / refresh / logout）
+    path("api/auth/", include("user.urls")),
+    # 业务 API（阶段 1.4-1.7：library / crawl / local / search）
+    path("api/", include("comic.urls")),
 ]
 # 部署 MEDIA 文件访问权限
 if settings.DEBUG:

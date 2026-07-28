@@ -3,6 +3,21 @@ __pycache__/
 *.py[cod]
 *.pyo
 
+# uv / 虚拟环境
+.venv/
+.python-version
+
+# 测试 /  lint 缓存
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# 日志
+logs/
+JmWebProject/logs/
+
 # Django
 db.sqlite3
 JmWebProject/db/
@@ -26,3 +41,8 @@ temp_settings.py
 
 # Docker 生成的文件
 celerybeat-schedule
+
+# 前端（React / Vite）
+frontend/node_modules/
+frontend/dist/
+frontend/*.local

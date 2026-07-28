@@ -1,36 +1,53 @@
-# comic/urls.py
+"""comic 模块 API 路由（统一 /api/ 前缀，由主 urls.py 挂载）。
+
+端点设计见 docs/plan.md 4.2。
+"""
+
 from django.urls import path
+from rest_framework.routers import SimpleRouter
+
 from . import views
+
+router = SimpleRouter()
+router.register(r"library/albums", views.AlbumViewSet, basename="album")
+
 urlpatterns = [
-    # 1. 新首页 (Hub)
-    path('', views.home_view, name='index'),
-
-    # 2. 爬取功能页 (独立出来)
-    path('crawl/', views.crawl_page_view, name='crawl_page'),
-    path('crawl/api/', views.start_crawl_view, name='start_crawl_api'),  # AJAX 提交接口
-
-    # 3. JmComic 模块 (原首页逻辑移到这里)
-    path('library/', views.jm_album_list_view, name='jm_album_list'),
-    path('library/<int:pk>/', views.jm_album_detail_view, name='album_detail'),
-    path('library/<int:pk>/delete/', views.album_delete_view, name='album_delete'),
-    path('library/<int:pk>/check-updates/', views.check_album_updates_view, name='check_album_updates'),
-
-    # 4. 阅读页
-    path('photo/<int:pk>/', views.jm_photo_detail_view, name='photo_detail'),
-
-    # 5. 本地模块
-    path('local/', views.local_media_view, name='local_media'),
-    path('local/refresh/', views.local_media_refresh_view, name='local_media_refresh'),
-    path('local/images/<str:folder_name>/', views.local_media_images_view, name='local_media_images'),
-    path("local/videos/<str:folder_name>",views.local_media_videos_view, name='local_media_videos'),
-# 视频流式传输路由 (FileResponse)
-    path('local/stream/<str:folder_name>/<str:file_name>/', views.stream_video_view, name='stream_video'),
-    # 6. search
-    path('search/', views.search_view, name='search'),
-    path('search/detail/<str:jm_id>/', views.search_detail_view, name='search_detail'),
-
-    # 在线预览模块
-    path('search/preview/album/<str:jm_id>/', views.search_preview_album_view, name='search_preview_album'),  # 章节目录
-    path('search/preview/photo/<str:photo_id>/', views.search_preview_photo_view, name='search_preview_photo'),  # 阅读器
-
+    # Library L5：本地阅读器
+    path("library/photos/<int:pk>/", views.PhotoReaderView.as_view(), name="photo_reader"),
+    # Crawl C1-C2：提交 + 任务状态
+    path("crawl/", views.CrawlSubmitView.as_view(), name="crawl_submit"),
+    path(
+        "crawl/tasks/<str:task_id>/",
+        views.CrawlTaskStatusView.as_view(),
+        name="crawl_task_status",
+    ),
+    # Local M1-M5
+    path("local/media/", views.LocalMediaView.as_view(), name="local_media"),
+    path("local/media/refresh/", views.LocalMediaRefreshView.as_view(), name="local_media_refresh"),
+    path("local/images/<str:folder_name>/", views.LocalImagesView.as_view(), name="local_images"),
+    path("local/videos/<str:folder_name>/", views.LocalVideosView.as_view(), name="local_videos"),
+    path(
+        "local/stream/<str:folder_name>/<str:file_name>/",
+        views.VideoStreamView.as_view(),
+        name="video_stream",
+    ),
+    # Search S1-S4
+    path("search/", views.SearchView.as_view(), name="search"),
+    path(
+        "search/albums/<str:jm_id>/",
+        views.SearchAlbumDetailView.as_view(),
+        name="search_album_detail",
+    ),
+    path(
+        "search/albums/<str:jm_id>/episodes/",
+        views.SearchAlbumEpisodesView.as_view(),
+        name="search_album_episodes",
+    ),
+    path(
+        "search/photos/<str:photo_id>/images/",
+        views.SearchPhotoImagesView.as_view(),
+        name="search_photo_images",
+    ),
 ]
+
+urlpatterns += router.urls

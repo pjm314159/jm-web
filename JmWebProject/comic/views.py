@@ -1,816 +1,291 @@
-from django.http import JsonResponse, HttpResponse, Http404, FileResponse, StreamingHttpResponse
-from django.shortcuts import render, get_object_or_404, redirect
-from django.contrib.auth.decorators import login_required
-from django.core.paginator import Paginator
-from django.core.cache import cache
-from django.conf import settings
-from django.http import HttpResponseForbidden
-from pathlib import Path
+"""comic 模块 DRF 视图。
+
+视图层只解析请求与组装响应，业务逻辑全部下沉到 services/（见 docs/design.md 3）。
+端点设计见 docs/plan.md 4.2，统一前缀 /api/（由 comic/urls.py 挂载）。
+"""
+
+import logging
 import os
-import shutil  # 用于递归删除文件夹
 import re
-import datetime
+
+from celery.result import AsyncResult
+from django.http import FileResponse, HttpResponse, StreamingHttpResponse
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
 from .models import Album, Photo
-from .tasks import sanitize_filename, get_jm_client  # 复用 tasks 中的清洗函数和 client 获取函数
-from jmcomic import JmSearchPage, JmcomicText, JmImageTool
+from .serializers import (
+    AlbumDetailSerializer,
+    AlbumSerializer,
+    CrawlSubmitSerializer,
+)
+from .services import library, local_media, search
 from .tasks import crawl_jm_task
-from .utils import parse_jm_input, scan_local_media_folders
+from .utils import parse_jm_input
 
-# ----------------------------------------------------
-# 1. 本子总览页 (Card UI)
-# ----------------------------------------------------
-@login_required
-def jm_album_list_view(request):
-    """
-    展示所有包含已下载章节的本子，使用卡片式布局
-    """
-    # 筛选出至少有一章已下载的本子，去重，按更新时间倒序
-    albums_queryset = Album.objects.filter(photos__is_downloaded=True).distinct().order_by('-created_at')
-
-    # 分页：每页 12 个本子 (3x4 或 4x3 布局)
-    paginator = Paginator(albums_queryset, 30)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-
-    context = {
-        'page_obj': page_obj,
-    }
-    # 注意：这里使用新设计的模板名称
-    return render(request, 'comic/jm_album_list.html', context)
+logger = logging.getLogger(__name__)
 
 
-# ----------------------------------------------------
-# 2. 本子详情页
-# ----------------------------------------------------
-@login_required
-def jm_album_detail_view(request, pk):
-    """
-    展示本子详情及章节列表
-    """
-    album = get_object_or_404(Album, pk=pk)
+# ====================================================
+# 漫画库（/api/library/）L1-L5
+# ====================================================
+class AlbumViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """L1 列表 / L2 详情 / L3 删除 / L4 检测更新。"""
 
-    # 获取该本子下所有章节 (含未下载)，按序号排序
-    photos = album.photos.all().order_by('sort_index')
+    def get_queryset(self):
+        # L1 列表仅展示含已下载章节的本子；detail/destroy/check-updates 可操作任何存在的本子
+        if self.action == "list":
+            return library.get_library_albums()
+        return Album.objects.all().order_by("-created_at")
 
-    context = {
-        'album': album,
-        'photos': photos,
-    }
-    return render(request, 'comic/jm_album_detail.html', context)
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return AlbumDetailSerializer
+        return AlbumSerializer
 
+    def perform_destroy(self, instance):
+        # L3：文件 + 缓存 + 数据库三步删除
+        library.delete_album(instance)
 
-# ----------------------------------------------------
-# 3. 删除本子逻辑 (数据库 + 文件)
-# ----------------------------------------------------
-@login_required
-def album_delete_view(request, pk):
-    """
-    删除本子：
-    1. 删除硬盘上的文件夹
-    2. 删除数据库记录
-    """
-    if request.method != 'POST':
-        return HttpResponseForbidden("只允许 POST 请求")
-
-    album = get_object_or_404(Album, pk=pk)
-
-    # --- 步骤 A: 删除文件系统中的文件 ---
-    # 根据爬虫逻辑构建路径: media/images/jmcomic/[safe_name]
-    safe_name = sanitize_filename(album.name)
-    album_dir = os.path.join(settings.MEDIA_ROOT, 'images', 'jmcomic', safe_name)
-
-    if os.path.exists(album_dir) and os.path.isdir(album_dir):
+    @action(detail=True, methods=["post"], url_path="check-updates")
+    def check_updates(self, request, pk=None):
+        """L4：对比远端章节，返回新章节差集。"""
+        album = self.get_object()
         try:
-            shutil.rmtree(album_dir)  # 递归删除文件夹及其内容
-            print(f"已物理删除文件夹: {album_dir}")
+            data = library.check_album_updates(album)
         except Exception as e:
-            print(f"删除文件夹失败: {e}")
-            # 这里即使文件删除失败，通常也继续删除数据库记录，避免死循环
-    else:
-        print(f"文件夹不存在，跳过物理删除: {album_dir}")
-
-    # --- 步骤 B: 删除 Redis 中的 episode 列表 ---
-    try:
-        cache.delete(f'jmw-album-episodes-{album.jm_id}')
-    except Exception:
-        pass
-
-    # --- 步骤 C: 删除数据库记录 ---
-    # 由于 Photo 设置了 on_delete=models.CASCADE，删除 Album 会自动删除关联的 Photo
-    album_name = album.name
-    album.delete()
-
-    print(f"已删除数据库记录: {album_name}")
-
-    return redirect('jm_album_list')
+            logger.exception("检测更新失败")
+            return Response({"error": f"检测失败: {e!s}"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(data)
 
 
-# ----------------------------------------------------
-# 3.5 检查 Album 更新 (本地页面手动检测)
-# ----------------------------------------------------
-@login_required
-def check_album_updates_view(request, pk):
-    """
-    手动检测远端是否有新章节：从数据库读取本地 Photo 列表，
-    拉取远端 episode_list 对比，返回新章节信息。
-    """
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Method not allowed'}, status=405)
+class PhotoReaderView(APIView):
+    """L5：本地阅读器数据（图片 URL 分页 + target 跳转 + 上/下章导航）。"""
 
-    album = get_object_or_404(Album, pk=pk)
+    def get(self, request, pk):
+        try:
+            photo = Photo.objects.select_related("album").get(pk=pk)
+        except Photo.DoesNotExist:
+            return Response({"error": "章节不存在"}, status=status.HTTP_404_NOT_FOUND)
+        data = library.get_photo_reader_data(
+            photo, page=request.GET.get("page", 1), target=request.GET.get("target")
+        )
+        return Response(data)
 
-    try:
-        # 1. 从数据库读取本地已有的章节 jm_id 集合
-        local_photo_ids = set(
-            album.photos.values_list('jm_id', flat=True)
+
+# ====================================================
+# 爬取（/api/crawl/）C1-C2
+# ====================================================
+class CrawlSubmitView(APIView):
+    """C1：提交爬取，解析输入后派发 Celery 任务，返回 task_id。"""
+
+    def post(self, request):
+        serializer = CrawlSubmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        jm_type, jm_id = parse_jm_input(serializer.validated_data["input"])
+        if not jm_id:
+            return Response({"error": "无效链接或ID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        task = crawl_jm_task.delay(jm_type, jm_id)
+        return Response(
+            {
+                "status": "success",
+                "message": f"任务已提交: {jm_type} - {jm_id}",
+                "task_id": task.id,
+            },
+            status=status.HTTP_202_ACCEPTED,
         )
 
-        # 2. 拉取远端 episode_list
-        album_detail = get_jm_client().get_album_detail(album.jm_id)
-        remote_episodes = album_detail.episode_list if hasattr(album_detail, 'episode_list') else []
 
-        # 3. 对比差集，找出新章节
-        remote_ids = {ep[0] for ep in remote_episodes if ep[0]}
-        new_episode_ids = remote_ids - local_photo_ids
-        new_episodes = [ep for ep in remote_episodes if ep[0] in new_episode_ids]
+class CrawlTaskStatusView(APIView):
+    """C2：查询 Celery 任务状态（PENDING/PROGRESS/SUCCESS/FAILURE + 进度）。"""
 
-        # 4. 更新 Redis 中的 episode 列表 (TTL 永久)
-        try:
-            cache.set(f'jmw-album-episodes-{album.jm_id}',
-                      list(remote_ids), timeout=None)
-        except Exception:
-            pass
-
-        # 5. 更新 album 元数据中的 total_episodes
-        album.total_episodes = len(remote_episodes)
-        album.save(update_fields=['total_episodes'])
-
-        return JsonResponse({
-            'has_updates': len(new_episodes) > 0,
-            'new_episodes': [
-                {'photo_id': ep[0], 'index': ep[1], 'name': ep[2] if ep[2] else str(ep[1])}
-                for ep in new_episodes
-            ],
-            'new_count': len(new_episodes),
-            'local_count': len(local_photo_ids),
-            'remote_count': len(remote_episodes),
-        })
-    except Exception as e:
-        return JsonResponse({'error': f'检测失败: {str(e)}'}, status=500)
+    def get(self, request, task_id):
+        result = AsyncResult(task_id)
+        payload = {"task_id": task_id, "state": result.state}
+        if result.state == "PROGRESS":
+            payload["progress"] = result.info
+        elif result.state == "SUCCESS":
+            payload["result"] = result.result
+        elif result.state == "FAILURE":
+            payload["error"] = str(result.info)
+        return Response(payload)
 
 
-# ----------------------------------------------------
-# 4. 章节阅读页 (含核心导航逻辑)
-# ----------------------------------------------------
-@login_required
-def jm_photo_detail_view(request, pk):
-    """
-    章节阅读器：支持分页（每页300张）和跳转
-    """
-    photo = get_object_or_404(Photo, pk=pk)
-    album = photo.album
-    # --- 1. 读取本地文件列表 ---
-    if photo.save_path:
-        full_dir_path = os.path.join(settings.MEDIA_ROOT, photo.save_path)
-    else:
-        full_dir_path = ""
+# ====================================================
+# 本地媒体（/api/local/）M1-M5
+# ====================================================
+class LocalMediaView(APIView):
+    """M1：图片/视频文件夹列表（读缓存）。"""
 
-    image_files = []
-    if os.path.exists(full_dir_path) and os.path.isdir(full_dir_path):
-        # 获取所有图片文件
-        files = [f for f in os.listdir(full_dir_path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif'))]
-        # 自然排序
-        files.sort(key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x)])
-
-        # 构造 URL
-        for f in files:
-            url = os.path.join(settings.MEDIA_URL, photo.save_path, f).replace('\\', '/')
-            image_files.append(url)
-
-    total_images = len(image_files)
-
-    # --- 2. 分页逻辑 (每页 300 张) ---
-    IMAGES_PER_PAGE = 300
-    paginator = Paginator(image_files, IMAGES_PER_PAGE)
-
-    # 获取 URL 参数
-    page_number = request.GET.get('page', 1)
-    target_jump_index = request.GET.get('target', None)  # 目标图片序号 (用于 JS 滚动)
-
-    # 如果用户请求的是 target (直接跳转某张图)，我们需要计算它在哪一页
-    if target_jump_index:
-        try:
-            target_idx = int(target_jump_index)
-            # 计算页码： (索引-1) // 300 + 1
-            calculated_page = (target_idx - 1) // IMAGES_PER_PAGE + 1
-            page_number = calculated_page
-        except ValueError:
-            pass
-
-    page_obj = paginator.get_page(page_number)
-
-    # 计算当前页第一张图片在全局的序号 (例如第2页第一张是 #301)
-    # page_obj.start_index() 返回的是 1-based 索引
-    current_start_index = page_obj.start_index() if page_obj.start_index() else 1
-
-    # --- 3. 上一章 / 下一章 ---
-    siblings = Photo.objects.filter(album=album).order_by('sort_index')
-    prev_photo = siblings.filter(sort_index__lt=photo.sort_index).last()
-    next_photo = siblings.filter(sort_index__gt=photo.sort_index).first()
-
-    context = {
-        'photo': photo,
-        'page_obj': page_obj,  # 分页对象
-        'image_files': page_obj.object_list,  # 当前页的图片列表
-        'total_images': total_images,  # 总图片数
-        'current_start_index': current_start_index,  # 当前页起始序号
-        'prev_photo': prev_photo,
-        'next_photo': next_photo,
-        'target_jump_index': target_jump_index,  # 传给模板做 JS 滚动
-        'images_per_page': IMAGES_PER_PAGE,
-    }
-    return render(request, 'comic/jm_photo_detail.html', context)
+    def get(self, request):
+        return Response(local_media.get_media_folders())
 
 
-# ----------------------------------------------------
-# 模块二：爬取指令
-# ----------------------------------------------------
+class LocalMediaRefreshView(APIView):
+    """M2：清缓存并重扫。"""
 
-@login_required
-def start_crawl_view(request):
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Method not allowed'}, status=405)
-
-    input_text = request.POST.get('input_id')
-
-    # 1. 解析类型和ID
-    # 这里的 parse_jm_input 是您之前在 utils.py 里写的那个
-    jm_type, jm_id = parse_jm_input(input_text)
-
-    if not jm_id:
-        return JsonResponse({'error': '无效链接或ID'}, status=400)
-
-    # 2. 直接触发异步任务
-    # 我们不在视图里做复杂的数据库检查，让 Celery 任务去处理 update_or_create
-    # 这样用户体验更快
-    task = crawl_jm_task.delay(jm_type, jm_id)
-
-    return JsonResponse({
-        'status': 'success',
-        'message': f'任务已提交: {jm_type} - {jm_id}',
-        'task_id': task.id
-    })
+    def post(self, request):
+        return Response(local_media.refresh_media())
 
 
-# ----------------------------------------------------
-# 模块三：本地模块展示
-# ----------------------------------------------------
-@login_required
-def local_media_view(request):
-    """
-    展示 media/images/local 和 media/videos 下的子文件夹列表
-    """
-    # 检查缓存
-    cache_key = 'jmw-local-media-folders'
-    context = cache.get(cache_key)
+class LocalImagesView(APIView):
+    """M3：本地图片分页（300/页、jump 跳转）。"""
 
-    if context is None:
-        # 保底：缓存 miss 时扫描目录并填充缓存
-        image_albums, video_folders = scan_local_media_folders()
-        context = {
-            'image_albums': image_albums,
-            'video_folders': video_folders,
-        }
-
-    return render(request, 'comic/local_media.html', context)
+    def get(self, request, folder_name):
+        data = local_media.get_image_folder(
+            folder_name, page=request.GET.get("page", 1), jump=request.GET.get("jump")
+        )
+        if data is None:
+            return Response({"error": "文件夹不存在"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(data)
 
 
-@login_required
-def local_media_refresh_view(request):
-    """手动清除本地媒体缓存并重新扫描目录"""
-    if request.method == 'POST':
-        try:
-            cache.delete_pattern('jmw-local-images-*')
-            cache.delete_pattern('jmw-local-videos-*')
-            cache.delete('jmw-local-media-folders')
-        except Exception:
-            pass
-        # 重新扫描并填充缓存
-        scan_local_media_folders()
-        return redirect('local_media')
-    return redirect('local_media')
+class LocalVideosView(APIView):
+    """M4：本地视频列表。"""
+
+    def get(self, request, folder_name):
+        data = local_media.get_video_folder(folder_name)
+        if data is None:
+            return Response({"error": "文件夹不存在"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(data)
 
 
-# ----------------------------------------------------
-# 模块三：本地模块 - 详情页 (展示具体文件)
-# ----------------------------------------------------
-IMAGE_PER_PAGE = 300 # 每页显示 300 张图片
-# @login_required
-# def local_media_detail_view(request, type, folder_name):
-#     """
-#     展示具体文件夹内的图片或视频
-#     :param type: 'images' 或 'videos'
-#     :param folder_name: 文件夹名称
-#     """
-#     base_dir = Path(settings.MEDIA_ROOT)
-#
-#     if type == 'images':
-#         target_dir = base_dir / 'images' / 'local' / folder_name
-#         valid_exts = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
-#         template_name = 'comic/local_images_detail.html'  # 图片专用模板
-#     elif type == 'videos':
-#         target_dir = base_dir / 'videos' / folder_name
-#         valid_exts = ['.mp4', '.webm', '.mov', '.mkv']
-#         template_name = 'comic/local_videos_detail.html'  # 视频专用模板
-#     else:
-#         return redirect('local_media')
-#
-#     if not target_dir.exists():
-#         return render(request, 'comic/error.html', {'message': '文件夹不存在'})
-#
-#     files = []
-#     # 获取所有符合后缀的文件
-#     raw_files = [f for f in target_dir.iterdir() if f.is_file() and f.suffix.lower() in valid_exts]
-#
-#     # 文件名自然排序 (1.jpg, 2.jpg, 10.jpg)
-#     raw_files.sort(key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x.name)])
-#
-#     for f in raw_files:
-#         # 构造 URL
-#         if type == 'images':
-#             url = f"{settings.MEDIA_URL}images/local/{folder_name}/{f.name}"
-#         else:
-#             url = f"{settings.MEDIA_URL}videos/{folder_name}/{f.name}"
-#
-#         files.append({
-#             'name': f.name,
-#             'url': url
-#         })
-#
-#     if type == 'images':
-#         paginator = Paginator(files, IMAGE_PER_PAGE)
-#
-#         page_number = request.GET.get('page')
-#         jump_to_index = request.GET.get('jump')
-#         target_jump_index = None  # 新增：用于告诉模板要滚动到哪张图
-#
-#         if jump_to_index:
-#             try:
-#                 # 1. 计算目标页码
-#                 jump_index = max(1, int(jump_to_index))
-#                 # 确保不超过总数
-#                 jump_index = min(jump_index, len(files))
-#
-#                 target_page = ((jump_index - 1) // IMAGE_PER_PAGE) + 1
-#                 page_number = target_page
-#
-#                 # 2. 记录目标索引，传给模板
-#                 target_jump_index = jump_index
-#             except ValueError:
-#                 pass
-#
-#         page_obj = paginator.get_page(page_number)
-#
-#         # 获取当前页第一张图片在全局的序号 (例如第2页第一张是第301张)
-#         # page_obj.start_index() 返回的是 1-based 索引
-#         start_index = page_obj.start_index() if page_obj.start_index() else 1
-#
-#         context = {
-#             'folder_name': folder_name,
-#             'type': type,
-#             'page_obj': page_obj,
-#             'files': page_obj.object_list,
-#             'count': paginator.count,
-#             'start_index': start_index,
-#             'total_pages': paginator.num_pages,
-#             'current_page': page_obj.number,
-#             # 传给模板的新变量
-#             'target_jump_index': target_jump_index,
-#         }
-#         return render(request, template_name, context)
-#     # videos
-#     context = {
-#         'folder_name': folder_name,
-#         'type': type,
-#         'files': files,
-#         'count': len(files)
-#     }
-#     return render(request, template_name, context)
-@login_required
-def local_media_images_view(request, folder_name):
-    base_dir = Path(settings.MEDIA_ROOT)
-    target_dir = base_dir / 'images' / 'local' / folder_name
-    template_name = 'comic/local_images_detail.html'
-    if not target_dir.exists():
-        return render(request, 'comic/error.html', {'message': '文件夹不存在'})
-
-    # 从缓存获取文件列表
-    cache_key = f'jmw-local-images-{folder_name}'
-    files = cache.get(cache_key)
-
-    if files is None:
-        # 保底：缓存 miss 时扫描整个目录并填充缓存
-        scan_local_media_folders()
-        files = cache.get(cache_key, [])
-    paginator = Paginator(files, IMAGE_PER_PAGE)
-
-    page_number = request.GET.get('page')
-    jump_to_index = request.GET.get('jump')
-    target_jump_index = None  # 新增：用于告诉模板要滚动到哪张图
-
-    if jump_to_index:
-        try:
-            # 1. 计算目标页码
-            jump_index = max(1, int(jump_to_index))
-            # 确保不超过总数
-            jump_index = min(jump_index, len(files))
-
-            target_page = ((jump_index - 1) // IMAGE_PER_PAGE) + 1
-            page_number = target_page
-
-            # 2. 记录目标索引，传给模板
-            target_jump_index = jump_index
-        except ValueError:
-            pass
-
-    page_obj = paginator.get_page(page_number)
-
-    # 获取当前页第一张图片在全局的序号 (例如第2页第一张是第301张)
-    # page_obj.start_index() 返回的是 1-based 索引
-    start_index = page_obj.start_index() if page_obj.start_index() else 1
-
-    context = {
-        'folder_name': folder_name,
-        'page_obj': page_obj,
-        'files': page_obj.object_list,
-        'count': paginator.count,
-        'start_index': start_index,
-        'total_pages': paginator.num_pages,
-        'current_page': page_obj.number,
-        # 传给模板的新变量
-        'target_jump_index': target_jump_index,
-    }
-    return render(request, template_name, context)
+_VIDEO_CONTENT_TYPES = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska",
+    ".avi": "video/x-msvideo",
+    ".wmv": "video/x-ms-wmv",
+    ".flv": "video/x-flv",
+    ".m4v": "video/x-m4v",
+    ".mpg": "video/mpeg",
+    ".mpeg": "video/mpeg",
+}
 
 
-@login_required
-def local_media_videos_view(request, folder_name):
-    # 此处接收 url 中的 type 如果 urls.py 中有定义的话，这里假设仅使用 folder_name
-    base_dir = Path(settings.MEDIA_ROOT)
-    target_dir = base_dir / 'videos' / folder_name
-    template_name = 'comic/local_videos_detail.html'
+class VideoStreamView(APIView):
+    """M5：视频 Range 流式播放（保留旧实现，支持 206/Content-Range）。"""
 
-    if not target_dir.exists():
-        return render(request, 'comic/error.html', {'message': '文件夹不存在'})
+    def get(self, request, folder_name, file_name):
+        path = local_media.resolve_video_path(folder_name, file_name)
+        if path is None:
+            return Response({"error": "视频文件不存在"}, status=status.HTTP_404_NOT_FOUND)
 
-    # 从缓存获取文件列表
-    cache_key = f'jmw-local-videos-{folder_name}'
-    files = cache.get(cache_key)
+        file_path = str(path)
+        file_size = os.path.getsize(file_path)
+        ext = os.path.splitext(file_name)[1].lower()
+        content_type = _VIDEO_CONTENT_TYPES.get(ext, "application/octet-stream")
 
-    if files is None:
-        # 保底：缓存 miss 时扫描整个目录并填充缓存
-        scan_local_media_folders()
-        files = cache.get(cache_key, [])
+        range_header = request.headers.get("range")
+        if not range_header:
+            response = FileResponse(
+                open(file_path, "rb"),  # noqa: SIM115 FileResponse 负责关闭文件
+                content_type=content_type,
+                as_attachment=False,
+            )
+            response["Accept-Ranges"] = "bytes"
+            response["Content-Length"] = str(file_size)
+            return response
 
-    context = {
-        'folder_name': folder_name,
-        'files': files,
-        'count': len(files),
-        # 传递第一个视频作为默认播放项
-        'first_video': files[0] if files else None
-    }
-    return render(request, template_name, context)
+        byte_range_match = re.match(r"bytes=(\d+)-(\d*)", range_header)
+        if not byte_range_match:
+            return HttpResponse(status=400)
 
+        start_byte = int(byte_range_match.group(1))
+        end_byte_match = byte_range_match.group(2)
+        end_byte = int(end_byte_match) if end_byte_match else file_size - 1
 
-@login_required
-def stream_video_view(request, folder_name, file_name):
-    """改进的视频流视图，支持正确的 Range 请求和分块传输"""
-    path = Path(settings.MEDIA_ROOT) / 'videos' / folder_name / file_name
-    if not path.exists():
-        raise Http404("视频文件不存在")
+        if start_byte >= file_size or end_byte >= file_size or start_byte > end_byte:
+            return HttpResponse(status=416)
 
-    file_path = str(path)
-    file_size = os.path.getsize(file_path)
+        content_length = end_byte - start_byte + 1
 
-    # 根据文件扩展名设置正确的 Content-Type
-    content_type = 'video/mp4'  # 默认
-    ext = os.path.splitext(file_name)[1].lower()
-    content_types = {
-        '.mp4': 'video/mp4',
-        '.webm': 'video/webm',
-        '.mov': 'video/quicktime',
-        '.mkv': 'video/x-matroska',
-        '.avi': 'video/x-msvideo',
-        '.wmv': 'video/x-ms-wmv',
-        '.flv': 'video/x-flv',
-        '.m4v': 'video/x-m4v',
-        '.mpg': 'video/mpeg',
-        '.mpeg': 'video/mpeg'
-    }
-    content_type = content_types.get(ext, 'application/octet-stream')
+        def file_iterator(path_, start, length, chunk_size=8192):
+            with open(path_, "rb") as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = f.read(min(chunk_size, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
 
-    # 获取 Range 请求头
-    range_header = request.headers.get('range', None)
-
-    # 如果没有 Range 头，返回整个文件
-    if not range_header:
-        response = FileResponse(
-            open(file_path, 'rb'),
+        response = StreamingHttpResponse(
+            file_iterator(file_path, start_byte, content_length),
+            status=206,
             content_type=content_type,
-            as_attachment=False
         )
-        response['Accept-Ranges'] = 'bytes'
-        response['Content-Length'] = str(file_size)
+        response["Content-Range"] = f"bytes {start_byte}-{end_byte}/{file_size}"
+        response["Accept-Ranges"] = "bytes"
+        response["Content-Length"] = str(content_length)
         return response
 
-    # 解析 Range 头
-    byte_range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
-    if not byte_range_match:
-        return HttpResponse(status=400)  # Bad Request
 
-    start_byte = int(byte_range_match.group(1))
-    end_byte_match = byte_range_match.group(2)
+# ====================================================
+# 在线搜索（/api/search/）S1-S4
+# ====================================================
+class SearchView(APIView):
+    """S1：搜索（keyword/tag，缓存 120s，标记本地已下载）。"""
 
-    # 计算结束字节位置
-    if end_byte_match:
-        end_byte = int(end_byte_match)
-    else:
-        end_byte = file_size - 1
-
-    # 验证范围
-    if start_byte >= file_size or end_byte >= file_size or start_byte > end_byte:
-        return HttpResponse(status=416)  # Range Not Satisfiable
-
-    # 计算内容长度
-    content_length = end_byte - start_byte + 1
-
-    # 使用生成器函数逐块读取文件
-    def file_iterator(file_path, start_byte, end_byte, chunk_size=8192):
-        """逐块读取文件的生成器函数"""
-        with open(file_path, 'rb') as file:
-            file.seek(start_byte)
-            remaining_bytes = content_length
-
-            while remaining_bytes > 0:
-                chunk = file.read(min(chunk_size, remaining_bytes))
-                if not chunk:
-                    break
-                remaining_bytes -= len(chunk)
-                yield chunk
-
-    # 创建流式响应
-    response = StreamingHttpResponse(
-        file_iterator(file_path, start_byte, end_byte),
-        status=206,
-        content_type=content_type
-    )
-
-    response['Content-Range'] = f'bytes {start_byte}-{end_byte}/{file_size}'
-    response['Accept-Ranges'] = 'bytes'
-    response['Content-Length'] = str(content_length)
-
-    return response
-@login_required
-def home_view(request):
-    """
-    网站入口：导航枢纽
-    """
-    return render(request, 'comic/home.html')
-
-@login_required
-def crawl_page_view(request):
-    """
-    独立的爬取指令页面
-    """
-    return render(request, 'comic/crawl_form.html')
-
-
-# ----------------------------------------------------
-# 模块五：在线搜索模块
-# ----------------------------------------------------
-@login_required
-def search_view(request):
-    """
-    在线搜索总览页：支持关键字和标签搜索
-    """
-    query = request.GET.get('q', '').strip()
-    search_type = request.GET.get('type', 'keyword')  # keyword 或 tag
-    page_num = int(request.GET.get('page', 1))
-
-    results = []
-    pagination = {}
-    error_msg = None
-
-    if query:
-        # 检查缓存
-        cache_key = f'jmw-search-{search_type}-{query}-{page_num}'
-        cached_context = cache.get(cache_key)
-
-        if cached_context:
-            return render(request, 'comic/search.html', cached_context)
-
+    def get(self, request):
         try:
-            # 根据类型调用不同的 API
-            jm_page: JmSearchPage = None
+            page = int(request.GET.get("page", 1))
+        except ValueError:
+            page = 1
+        data = search.search(
+            query=request.GET.get("q", ""),
+            search_type=request.GET.get("type", "keyword"),
+            page=page,
+        )
+        return Response(data)
 
-            if search_type == 'tag':
-                jm_page = get_jm_client().search_tag(search_query=query, page=page_num)
-            else:
-                # 默认关键字搜索
-                jm_page = get_jm_client().search_site(search_query=query, page=page_num)
 
-            # 处理搜索结果
-            # page.content 结构: [(album_id, info_dict), ...]
-            # 批量查询已下载的 album_id，避免 N+1 查询
-            album_ids = [album_id for album_id, _ in jm_page.content]
-            downloaded_ids = set(
-                Album.objects.filter(
-                    jm_id__in=album_ids,
-                    photos__is_downloaded=True
-                )
-                .values_list('jm_id', flat=True)
-                .distinct()
-            )
+class SearchAlbumDetailView(APIView):
+    """S2：在线本子详情 + 更新检测。"""
 
-            for album_id, info in jm_page.content:
-                # 1. 检查本地是否已下载 (O(1) 集合查找)
-                is_downloaded = album_id in downloaded_ids
-
-                # 2. 格式化时间戳
-                update_time = "未知"
-                if 'update_at' in info and info['update_at']:
-                    try:
-                        ts = int(info['update_at'])
-                        update_time = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
-                    except Exception:
-                        pass
-
-                # 3. 获取封面
-                cover_url = JmcomicText.get_album_cover_url(album_id)
-
-                results.append({
-                    'jm_id': album_id,
-                    'name': info.get('name', '未知标题'),
-                    'author': info.get('author', ''),
-                    'tags': info.get('tags', []),
-                    'description': info.get('description', ''),
-                    'update_time': update_time,
-                    'cover_url': cover_url,
-                    'is_downloaded': is_downloaded,
-                    'category': info.get('category', {}).get('title', ''),
-                })
-
-            # 分页数据
-            pagination = {
-                'current': page_num,
-                'total': jm_page.total,
-                'page_count': jm_page.page_count,
-                'has_prev': page_num > 1,
-                'has_next': page_num < jm_page.page_count,
-                'prev_num': page_num - 1,
-                'next_num': page_num + 1
-            }
-
+    def get(self, request, jm_id):
+        try:
+            data = search.get_album_detail(jm_id)
         except Exception as e:
-            error_msg = f"搜索出错: {str(e)}"
-            print(f"Search Error: {e}")
-
-    context = {
-        'query': query,
-        'search_type': search_type,
-        'results': results,
-        'pagination': pagination,
-        'error_msg': error_msg,
-    }
-
-    # 缓存搜索结果（仅在有查询且无错误时缓存）
-    if query and not error_msg:
-        cache.set(cache_key, context, timeout=120)
-
-    return render(request, 'comic/search.html', context)
+            logger.exception("获取在线详情失败")
+            return Response({"error": f"获取详情失败: {e!s}"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(data)
 
 
-@login_required
-def search_detail_view(request, jm_id):
-    try:
-        album_detail = get_jm_client().get_album_detail(jm_id)
+class SearchAlbumEpisodesView(APIView):
+    """S3：在线章节列表。"""
 
-        # 检查本地状态
-        local_album = Album.objects.filter(jm_id=jm_id).first()
-        is_downloaded = local_album.photos.filter(is_downloaded=True).exists() if local_album else False
-
-        # 自动检测更新：对比 Redis 中的本地 episode 列表与远端 episode_list
-        # 远端已拿到 episode_list，无需额外网络请求
-        new_episode_count = 0
-        has_updates = False
-        if is_downloaded:
-            remote_ids = {ep[0] for ep in album_detail.episode_list if ep[0]}
-            local_cached_ids = set(cache.get(f'jmw-album-episodes-{jm_id}', []) or [])
-            if local_cached_ids:
-                # 有缓存：对比差集
-                new_episode_count = len(remote_ids - local_cached_ids)
-                has_updates = new_episode_count > 0
-            else:
-                # 无缓存（旧数据）：对比数据库中的 Photo 数量
-                local_photo_count = local_album.photos.count() if local_album else 0
-                new_episode_count = len(remote_ids) - local_photo_count
-                has_updates = new_episode_count > 0
-
-        # 处理作者
-        author = "未知"
-        if hasattr(album_detail, 'authors') and album_detail.authors:
-            # 如果是列表，取第一个或join
-            author = album_detail.authors[0] if len(album_detail.authors) > 0 else "未知"
-        elif hasattr(album_detail, 'author'):
-            author = album_detail.author
-        context = {
-            'album': {
-                'jm_id': jm_id,
-                'name': album_detail.name,
-                'author': author,
-                'description': getattr(album_detail, 'description', '暂无简介'),
-                'tags': getattr(album_detail, 'tags', []),
-                'cover_url': JmcomicText.get_album_cover_url(jm_id),
-                'likes':album_detail.likes,
-                'views': album_detail.views,
-                'comments_count':album_detail.comment_count,
-                # 关键：传递章节列表
-                'episode_list': album_detail.episode_list,
-            },
-            'is_downloaded': is_downloaded,
-            'has_updates': has_updates,
-            'new_episode_count': new_episode_count,
-        }
-        return render(request, 'comic/search_detail.html', context)
-    except Exception as e:
-        return render(request, 'comic/error.html', {'message': f"获取详情失败: {str(e)}"})
+    def get(self, request, jm_id):
+        try:
+            data = search.get_episode_list(jm_id)
+        except Exception as e:
+            logger.exception("获取在线章节失败")
+            return Response({"error": f"获取章节失败: {e!s}"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(data)
 
 
+class SearchPhotoImagesView(APIView):
+    """S4：在线阅读器（返回 {url, num} 列表，前端做反混淆拼接渲染）。"""
 
-
-# 2. 在线章节选择页 (点击搜索结果后的预览页)
-@login_required
-def search_preview_album_view(request, jm_id):
-    """
-    获取在线本子的详细章节列表
-    """
-    try:
-        album_detail = get_jm_client().get_album_detail(jm_id)
-
-        context = {
-            'album': album_detail,
-            'episode_list': album_detail.episode_list,  # 章节列表
-        }
-        return render(request, 'comic/search_preview_album.html', context)
-    except Exception as e:
-        return render(request, 'comic/error.html', {'message': f"获取章节失败: {e}"})
-
-
-# 3. 在线章节阅读器
-@login_required
-def search_preview_photo_view(request, photo_id):
-    try:
-
-        # 1. 获取详情 (fetch_scramble_id=True 用于计算混淆)
-        photo_detail = get_jm_client().get_photo_detail(photo_id, True)
-        scramble_id = photo_detail.scramble_id
-
-        # 2. 预计算数据 (只传 URL 和 num 给前端)
-        image_data_list = []
-        for img in photo_detail:
-            # 纯数学计算，无网络请求
-            num = JmImageTool.get_num_by_url(scramble_id, img.img_url)
-            image_data_list.append({
-                'url': img.img_url,
-                'num': num
-            })
-
-        # 3. 分页处理
-        IMAGES_PER_PAGE = 300
-        paginator = Paginator(image_data_list, IMAGES_PER_PAGE)
-
-        page_number = request.GET.get('page', 1)
-        # 处理跳转逻辑
-        target_jump = request.GET.get('target')
-        if target_jump:
-            try:
-                page_number = (int(target_jump) - 1) // IMAGES_PER_PAGE + 1
-            except Exception:
-                pass
-
-        page_obj = paginator.get_page(page_number)
-        current_start_index = page_obj.start_index() if page_obj.start_index() else 1
-
-        context = {
-            'photo': photo_detail,
-            'page_obj': page_obj,
-            'current_start_index': current_start_index,
-            'images_per_page': IMAGES_PER_PAGE,
-            'total_images': len(image_data_list),
-            'target_jump_index': target_jump,
-            'album_id': photo_detail.album_id,
-        }
-        return render(request, 'comic/search_preview_reader.html', context)
-
-    except Exception as e:
-        return render(request, 'comic/error.html', {'message': f"阅读失败: {e}"})
+    def get(self, request, photo_id):
+        try:
+            page = int(request.GET.get("page", 1))
+        except ValueError:
+            page = 1
+        try:
+            data = search.get_photo_images(photo_id, page=page, target=request.GET.get("target"))
+        except Exception as e:
+            logger.exception("在线阅读失败")
+            return Response({"error": f"阅读失败: {e!s}"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(data)

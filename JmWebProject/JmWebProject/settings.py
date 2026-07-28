@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from django.db.backends.signals import connection_created
@@ -15,48 +16,52 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
-DEBUG = False
+DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() in ("true", "1", "yes")
 
 # 1. 登录模块配置
 SESSION_COOKIE_AGE = 604800
-AUTH_USER_MODEL = 'user.User'
+AUTH_USER_MODEL = "user.User"
 
 # 2. 媒体文件配置 (用于存储爬取图片)
 BASE_DIR = Path(__file__).resolve().parent.parent
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 # 3. 爬取模块配置 (Celery)
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL)
-CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/1')
-CELERY_TIMEZONE = 'Asia/Shanghai'
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", REDIS_URL)
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
+CELERY_TIMEZONE = "Asia/Shanghai"
 
 # Celery Beat 定时任务配置
 CELERY_BEAT_SCHEDULE = {
-    'scan-local-media-every-5-minutes': {
-        'task': 'comic.tasks.scan_local_media_task',
-        'schedule': 300,  # 每 300 秒（5 分钟）执行一次
+    "scan-local-media-every-5-minutes": {
+        "task": "comic.tasks.scan_local_media_task",
+        "schedule": 300,  # 每 300 秒（5 分钟）执行一次
     },
 }
 
+# 异步爬虫并发控制（阶段 2）：沿用 jm-option.yml download.threading 语义
+JM_DOWNLOAD_IMAGE_CONCURRENCY = int(os.environ.get("JM_DOWNLOAD_IMAGE_CONCURRENCY", "30"))
+JM_DOWNLOAD_PHOTO_CONCURRENCY = int(os.environ.get("JM_DOWNLOAD_PHOTO_CONCURRENCY", "3"))
+
 # 5. 缓存配置 (Redis)
 CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': os.environ.get('REDIS_URL', 'redis://localhost:6379/0'),
-        'TIMEOUT': 300,
-        'KEY_PREFIX': 'jmw',
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+        "TIMEOUT": 300,
+        "KEY_PREFIX": "jmw",
     }
 }
 
 # Session 使用缓存存储
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-SESSION_CACHE_ALIAS = 'default'
+SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+SESSION_CACHE_ALIAS = "default"
 SESSION_SAVE_EVERY_REQUEST = False
 
 # 4. 注册密钥 (硬编码，您可以考虑存放在环境变量中)
-REGISTRATION_SECRET_KEY = os.getenv('REGISTRATION_SECRET_KEY')
+REGISTRATION_SECRET_KEY = os.getenv("REGISTRATION_SECRET_KEY")
 if not REGISTRATION_SECRET_KEY:
     raise RuntimeError("REGISTRATION_SECRET_KEY environment variable is required")
 
@@ -64,86 +69,137 @@ if not REGISTRATION_SECRET_KEY:
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-jnjgzo5%d43(iyjp3zsbc)^($zq@nh)kx0vfbl&6fm9_z*u+sf')
+SECRET_KEY = os.environ.get(
+    "DJANGO_SECRET_KEY", "django-insecure-jnjgzo5%d43(iyjp3zsbc)^($zq@nh)kx0vfbl&6fm9_z*u+sf"
+)
 
 
 ALLOWED_HOSTS = [os.getenv("ALLOWED_HOST"), "127.0.0.1", "localhost"]
 # security
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
-X_FRAME_OPTIONS = 'DENY'
+X_FRAME_OPTIONS = "DENY"
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'user',
-    'comic',
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    # 第三方：REST API + JWT 认证 + CORS
+    "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
+    "corsheaders",
+    # 业务应用
+    "user",
+    "comic",
 ]
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.middleware.gzip.GZipMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.http.ConditionalGetMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # 须置于 CommonMiddleware 之前
+    "django.middleware.gzip.GZipMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.http.ConditionalGetMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
-CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://127.0.0.1,http://127.0.0.1:8000").split(",")
-CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://127.0.0.1,http://127.0.0.1:8000").split(",")
-ROOT_URLCONF = 'JmWebProject.urls'
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    "CSRF_TRUSTED_ORIGINS", "http://127.0.0.1,http://127.0.0.1:8000"
+).split(",")
+CORS_ALLOWED_ORIGINS = os.getenv(
+    "CORS_ALLOWED_ORIGINS", "http://127.0.0.1,http://127.0.0.1:8000"
+).split(",")
+CORS_ALLOW_CREDENTIALS = True
+
+# ------------------------------------------------------------------
+# Django REST Framework：默认 JWT 鉴权 + 统一分页（30/页，对齐旧版列表）
+# ------------------------------------------------------------------
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",),
+    "DEFAULT_PARSER_CLASSES": (
+        "rest_framework.parsers.JSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser",
+    ),
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 30,
+    "DEFAULT_THROTTLE_CLASSES": ("rest_framework.throttling.AnonRateThrottle",),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "30/min",
+    },
+}
+
+# ------------------------------------------------------------------
+# SimpleJWT：access 7d + refresh 7d，旋转 + 拉黑
+# ------------------------------------------------------------------
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=7),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": True,
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+}
+ROOT_URLCONF = "JmWebProject.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
-                'django.template.context_processors.media',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+                "django.template.context_processors.media",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'JmWebProject.wsgi.application'
+WSGI_APPLICATION = "JmWebProject.wsgi.application"
 
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db/db.sqlite3',
-        'OPTIONS': {
-            'timeout': 5,
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db/db.sqlite3",
+        "OPTIONS": {
+            "timeout": 5,
         },
-        'CONN_MAX_AGE': 60,
+        "CONN_MAX_AGE": 60,
     }
 }
 
+
 # SQLite PRAGMA 优化：通过信号在连接创建时执行
 def _set_sqlite_pragma(sender, connection, **kwargs):
-    if connection.vendor == 'sqlite':
+    if connection.vendor == "sqlite":
         cursor = connection.cursor()
-        cursor.execute('PRAGMA journal_mode=WAL;')
-        cursor.execute('PRAGMA synchronous=NORMAL;')
-        cursor.execute('PRAGMA cache_size=-20000;')
-        cursor.execute('PRAGMA busy_timeout=5000;')
-        cursor.execute('PRAGMA temp_store=MEMORY;')
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA synchronous=NORMAL;")
+        cursor.execute("PRAGMA cache_size=-20000;")
+        cursor.execute("PRAGMA busy_timeout=5000;")
+        cursor.execute("PRAGMA temp_store=MEMORY;")
+
 
 connection_created.connect(_set_sqlite_pragma)
 
@@ -153,16 +209,16 @@ connection_created.connect(_set_sqlite_pragma)
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -170,9 +226,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "UTC"
 
 USE_I18N = True
 
@@ -182,36 +238,74 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_URL = "static/"
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
+    os.path.join(BASE_DIR, "static"),
 ]
-# JmWebProject/settings.py
 
-LOGIN_URL = '/auth/login/'
-
-# 告诉 Django 登录成功后跳转到首页 (name='index')
-LOGIN_REDIRECT_URL = '/'
-LOGOUT_REDIRECT_URL = '/auth/login/'
+# ------------------------------------------------------------------
+# 日志配置：控制台 + 按天滚动文件；爬虫任务单独落 celery.log
+# ------------------------------------------------------------------
+LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
+LOG_DIR = Path(os.getenv("DJANGO_LOG_DIR", BASE_DIR / "logs"))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "[{asctime}] {levelname} {name} {process:d} {thread:d} | {message}",
+            "style": "{",
+        },
+        "simple": {
+            "format": "[{asctime}] {levelname} {name} | {message}",
+            "style": "{",
         },
     },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',  # 或 'DEBUG' 获取更详细的信息
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+        "file": {
+            "class": "JmWebProject.log_utils.CompressedTimedRotatingFileHandler",
+            "filename": LOG_DIR / "jmweb.log",
+            "when": "midnight",
+            "backupCount": 30,
+            "encoding": "utf-8",
+            "formatter": "verbose",
+        },
+        "celery_file": {
+            "class": "JmWebProject.log_utils.CompressedTimedRotatingFileHandler",
+            "filename": LOG_DIR / "celery.log",
+            "when": "midnight",
+            "backupCount": 30,
+            "encoding": "utf-8",
+            "formatter": "verbose",
+        },
     },
-    'loggers': {
-        'django.request': {  # 记录请求相关日志
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
+    "root": {
+        "handlers": ["console", "file"],
+        "level": LOG_LEVEL,
+    },
+    "loggers": {
+        "django.request": {  # 4xx/5xx 请求日志
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "comic.tasks": {  # 爬虫任务单独落文件，便于排查下载问题
+            "handlers": ["console", "celery_file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "jmcomic": {  # 第三方库降噪
+            "level": "WARNING",
+        },
+        "celery": {
+            "level": "INFO",
         },
     },
 }

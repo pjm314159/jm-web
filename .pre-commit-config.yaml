@@ -1,0 +1,21 @@
+# pre-commit 钩子：提交时自动 lint + format
+# 安装：uv run pre-commit install
+# 手动全量运行：uv run pre-commit run --all-files
+#
+# 使用 local hook 直接调用项目锁定的 ruff（uv.lock），
+# 不依赖网络克隆远程仓库，保证本地与 CI 环境一致。
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true

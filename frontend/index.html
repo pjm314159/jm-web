@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JmComic-Web</title>
+    <script>
+      // 在 React 加载前同步应用主题，避免白天模式刷新时先闪黑夜（design.md L35）。
+      ;(function () {
+        try {
+          var t = localStorage.getItem('jm-theme')
+          document.documentElement.classList.toggle('dark', t !== 'light')
+        } catch (e) {
+          document.documentElement.classList.add('dark')
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

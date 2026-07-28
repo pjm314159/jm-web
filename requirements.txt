@@ -1,8 +1,0 @@
-django
-celery
-redis
-jmcomic
-pillow
-gunicorn
-dotenv
-django-redis

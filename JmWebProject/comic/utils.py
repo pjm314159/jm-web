@@ -1,8 +1,6 @@
 # comic/utils.py
 import re
-from pathlib import Path
-from django.conf import settings
-from django.core.cache import cache
+import unicodedata
 
 
 def parse_jm_input(input_str):
@@ -18,92 +16,79 @@ def parse_jm_input(input_str):
 
     # 1. 检查是否是纯数字 ID
     if input_str.isdigit():
-        return 'album', input_str
+        return "album", input_str
 
     # 2. 尝试正则匹配 Photo 链接 (章节)
-    photo_match = re.search(r'/photo/(\d+)', input_str)
+    photo_match = re.search(r"/photo/(\d+)", input_str)
     if photo_match:
-        return 'photo', photo_match.group(1)
+        return "photo", photo_match.group(1)
 
     # 3. 尝试正则匹配 Album 链接 (本子)
-    album_match = re.search(r'/album/(\d+)', input_str)
+    album_match = re.search(r"/album/(\d+)", input_str)
     if album_match:
-        return 'album', album_match.group(1)
+        return "album", album_match.group(1)
 
     return None, None
 
 
 def natural_sort_key(name):
     """文件名自然排序 key（1.jpg, 2.jpg, 10.jpg）"""
-    return [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', name)]
+    return [int(c) if c.isdigit() else c for c in re.split(r"(\d+)", name)]
 
 
-def scan_local_media_folders():
+def sanitize_filename(name: str, default: str = "file", max_length: int = 255) -> str:
     """
-    扫描本地媒体目录，返回 (image_albums, video_folders) 并写入 Redis 缓存。
-    供启动初始化、定时任务、视图保底三处复用。
+    清理字符串，使其可以作为安全的文件名，同时避免 URL 解析错误和非法访问。
+
+    处理内容：
+    - 替换 Windows 非法字符: \\ / : * ? " < > |
+    - 替换 URL 保留字符: # & = + % ; @ $ (等，避免参数解析)
+    - 替换路径遍历风险: 连续的点号或斜杠会被处理
+    - 去除控制字符 (ASCII 0-31, 127)
+    - 限制长度，保留扩展名（如果有）
+    - 处理首尾的点号和空格（Windows 限制）
+    - 如果清理后为空，返回 default
     """
-    base_dir = Path(settings.MEDIA_ROOT)
-    local_images_dir = base_dir / 'images' / 'local'
-    image_albums = []
+    if not isinstance(name, str):
+        name = str(name)
 
-    if local_images_dir.exists():
-        for folder in local_images_dir.iterdir():
-            if folder.is_dir():
-                image_files = sorted(
-                    [f for f in folder.iterdir()
-                     if f.is_file() and f.suffix.lower() in ['.jpg', '.jpeg', '.png', '.webp', '.gif']],
-                    key=lambda x: natural_sort_key(x.name)
-                )
+    # 1. Unicode 规范化（NFKC 可分解兼容字符，例如 ① -> 1）
+    name = unicodedata.normalize("NFKC", name)
 
-                cover_url = None
-                if image_files:
-                    first_file = image_files[0]
-                    cover_url = f"{settings.MEDIA_URL}images/local/{folder.name}/{first_file.name}"
+    # 2. 定义需要替换为下划线的字符集合
+    #    - Windows 非法: \ / : * ? " < > |
+    #    - URL/路径敏感: # & = + % ; @ $ ` ~ { } [ ] ( )  ! 等（可根据需要增删）
+    #    注意：? 已在 Windows 非法中，此处列出完整集
+    unsafe_chars = r'[#\\/:*?"<>|&=%+;@$`~{}\[\]()!]'
+    # 补充控制字符范围：ASCII 0-31 除了空格(32) 以及 127
+    control_chars = r"[\x00-\x1f\x7f]"
 
-                image_albums.append({
-                    'name': folder.name,
-                    'count': len(image_files),
-                    'cover_url': cover_url,
-                    'folder_name': folder.name,
-                })
+    # 先替换控制字符为空（直接删除）
+    name = re.sub(control_chars, "", name)
+    # 再替换不安全字符为下划线
+    name = re.sub(unsafe_chars, "_", name)
 
-                # 同时缓存每个文件夹的图片列表
-                files_list = [
-                    {'name': f.name, 'url': f"{settings.MEDIA_URL}images/local/{folder.name}/{f.name}"}
-                    for f in image_files
-                ]
-                cache.set(f'jmw-local-images-{folder.name}', files_list, timeout=None)
+    # 3. 处理路径遍历风险：将连续两个点号（..）替换为单个下划线，避免上级目录
+    name = re.sub(r"\.{2,}", "_", name)
+    # 将连续的多个下划线缩减为一个
+    name = re.sub(r"_+", "_", name)
 
-    # 扫描视频文件夹
-    local_videos_dir = base_dir / 'videos'
-    video_folders = []
+    # 4. 去除首尾的点和空格（Windows 不允许文件名以 . 或空格结尾）
+    name = name.strip(" .")
 
-    if local_videos_dir.exists():
-        for folder in local_videos_dir.iterdir():
-            if folder.is_dir():
-                video_files = [
-                    f for f in folder.iterdir()
-                    if f.is_file() and f.suffix.lower() in ['.mp4', '.webm', '.mov', '.mkv']
-                ]
-                video_folders.append({
-                    'name': folder.name,
-                    'count': len(video_files),
-                    'folder_name': folder.name,
-                })
+    # 5. 空文件名回退
+    if not name:
+        return default
 
-                # 同时缓存每个文件夹的视频列表
-                files_list = [
-                    {'name': f.name, 'url': f"/local/stream/{folder.name}/{f.name}/"}
-                    for f in sorted(video_files, key=lambda x: natural_sort_key(x.name))
-                ]
-                cache.set(f'jmw-local-videos-{folder.name}', files_list, timeout=None)
+    # 6. 长度限制：保留扩展名（如果存在）
+    if len(name) > max_length:
+        # 分离文件名和扩展名（最后一个点）
+        parts = name.rsplit(".", 1)
+        if len(parts) == 2 and len(parts[1]) <= 10:  # 扩展名一般不长
+            base, ext = parts
+            base = base[: max_length - len(ext) - 1]
+            name = f"{base}.{ext}"
+        else:
+            name = name[:max_length]
 
-    # 缓存文件夹列表
-    context = {
-        'image_albums': image_albums,
-        'video_folders': video_folders,
-    }
-    cache.set('jmw-local-media-folders', context, timeout=None)
-
-    return image_albums, video_folders
+    return name

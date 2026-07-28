@@ -7,6 +7,7 @@ class Album(models.Model):
     本子信息
     对应 client.get_album_detail()
     """
+
     jm_id = models.CharField(max_length=50, unique=True, verbose_name="JM ID")
     name = models.CharField(max_length=255, verbose_name="本子名称", default="未知")
     author = models.CharField(max_length=255, blank=True, null=True, verbose_name="作者")
@@ -31,19 +32,22 @@ class Photo(models.Model):
     章节信息
     对应 client.get_photo_detail() 或 album.episode_list 中的项
     """
-    album = models.ForeignKey(Album, on_delete=models.CASCADE, related_name='photos')
+
+    album = models.ForeignKey(Album, on_delete=models.CASCADE, related_name="photos")
     jm_id = models.CharField(max_length=50, unique=True, verbose_name="章节 ID")
     name = models.CharField(max_length=255, verbose_name="章节名称")
-    sort_index = models.IntegerField(default=0, verbose_name="章节序号")  # 对应 episode_list 中的 '1'
+    sort_index = models.IntegerField(
+        default=0, verbose_name="章节序号"
+    )  # 对应 episode_list 中的 '1'
     # 下载状态
     is_downloaded = models.BooleanField(default=False, db_index=True)
     save_path = models.CharField(max_length=512, blank=True, null=True, verbose_name="保存路径")
 
     class Meta:
-        ordering = ['sort_index']
+        ordering = ["sort_index"]
         indexes = [
-            models.Index(fields=['album', 'is_downloaded']),
-            models.Index(fields=['album', 'sort_index']),
+            models.Index(fields=["album", "is_downloaded"]),
+            models.Index(fields=["album", "sort_index"]),
         ]
 
     def __str__(self):

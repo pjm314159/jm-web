@@ -1,10 +1,13 @@
-# user/urls.py
+"""user 模块 API 路由：注册 / token 获取 / 刷新 / 登出。"""
+
 from django.urls import path
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
 from . import views
-from django.contrib.auth import views as auth_views
 
 urlpatterns = [
-    path('register/', views.register_view, name='register'),
-    path('login/', auth_views.LoginView.as_view(template_name='user/login.html'), name='login'),
-    path('logout/', auth_views.LogoutView.as_view(), name='logout'),
+    path("register/", views.RegisterView.as_view(), name="register"),
+    path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("logout/", views.LogoutView.as_view(), name="logout"),
 ]

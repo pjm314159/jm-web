@@ -1,334 +1,256 @@
-# comic/tasks.py
-import os
-import re
+"""Celery 爬取任务（阶段 2：异步重写）。
 
-import unicodedata
+执行模型（docs/plan.md 5.2/5.3）：
+- worker 保持 --pool=threads，每个任务线程内 asyncio.run() 拥有独立事件循环，
+  与 Django 同步 ORM 兼容。
+- 一个任务 = 一个事件循环 = 一个异步客户端（jm_async.async_jm_client）。
+- 所有数据库读写抽到同步函数，经 sync_to_async(thread_sensitive=True) 调用，
+  规避 SQLite 在异步上下文中的连接问题。
+- 章节级并发由 JM_DOWNLOAD_PHOTO_CONCURRENCY 控制，图片级并发由
+  JM_DOWNLOAD_IMAGE_CONCURRENCY 控制（见 jm_async.download_photo_images）。
+- 进度上报：self.update_state(state='PROGRESS', meta={current, total, photo_id})，
+  供 C2 任务状态接口读取。
+- 断点续传语义不变：已下载章节跳过。
+"""
+
+import asyncio
+import logging
+import os
+
+from asgiref.sync import sync_to_async
 from celery import shared_task
 from django.conf import settings
 from django.core.cache import cache
-from jmcomic import JmOption, multi_thread_launcher
 
 from .models import Album, Photo
-from .utils import scan_local_media_folders
+from .services import jm_async
+from .services.local_media import scan_local_media_folders
+from .utils import sanitize_filename
 
-# 懒加载 JM Client（带 TTL，避免长时间运行后 session 过期）
-import time
-
-_jm_client = None
-_jm_client_created_at = 0
-_CLIENT_TTL = 3600  # 1 小时刷新
-
-def get_jm_client():
-    global _jm_client, _jm_client_created_at
-    if _jm_client is None or (time.time() - _jm_client_created_at) > _CLIENT_TTL:
-        _jm_client = JmOption.default().new_jm_client()
-        _jm_client_created_at = time.time()
-    return _jm_client
-
-# ----------------------------------------------------
-# 工具函数：路径清洗
-# ----------------------------------------------------
-def sanitize_filename(name: str, default: str = "file", max_length: int = 255) -> str:
-    """
-    清理字符串，使其可以作为安全的文件名，同时避免 URL 解析错误和非法访问。
-
-    处理内容：
-    - 替换 Windows 非法字符: \\ / : * ? " < > |
-    - 替换 URL 保留字符: # & = + % ; @ $ (等，避免参数解析)
-    - 替换路径遍历风险: 连续的点号或斜杠会被处理
-    - 去除控制字符 (ASCII 0-31, 127)
-    - 限制长度，保留扩展名（如果有）
-    - 处理首尾的点号和空格（Windows 限制）
-    - 如果清理后为空，返回 default
-    """
-    if not isinstance(name, str):
-        name = str(name)
-
-    # 1. Unicode 规范化（NFKC 可分解兼容字符，例如 ① -> 1）
-    name = unicodedata.normalize('NFKC', name)
-
-    # 2. 定义需要替换为下划线的字符集合
-    #    - Windows 非法: \ / : * ? " < > |
-    #    - URL/路径敏感: # & = + % ; @ $ ` ~ { } [ ] ( )  ! 等（可根据需要增删）
-    #    注意：? 已在 Windows 非法中，此处列出完整集
-    unsafe_chars = r'[#\\/:*?"<>|&=%+;@$`~{}\[\]()!]'
-    # 补充控制字符范围：ASCII 0-31 除了空格(32) 以及 127
-    control_chars = r'[\x00-\x1f\x7f]'
-
-    # 先替换控制字符为空（直接删除）
-    name = re.sub(control_chars, '', name)
-    # 再替换不安全字符为下划线
-    name = re.sub(unsafe_chars, '_', name)
-
-    # 3. 处理路径遍历风险：将连续两个点号（..）替换为单个下划线，避免上级目录
-    name = re.sub(r'\.{2,}', '_', name)
-    # 将连续的多个下划线缩减为一个
-    name = re.sub(r'_+', '_', name)
-
-    # 4. 去除首尾的点和空格（Windows 不允许文件名以 . 或空格结尾）
-    name = name.strip(' .')
-
-    # 5. 空文件名回退
-    if not name:
-        return default
-
-    # 6. 长度限制：保留扩展名（如果存在）
-    if len(name) > max_length:
-        # 分离文件名和扩展名（最后一个点）
-        parts = name.rsplit('.', 1)
-        if len(parts) == 2 and len(parts[1]) <= 10:  # 扩展名一般不长
-            base, ext = parts
-            base = base[:max_length - len(ext) - 1]
-            name = f"{base}.{ext}"
-        else:
-            name = name[:max_length]
-
-    return name
+logger = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------
-# 核心逻辑：保存/更新 Album 元数据
+# 同步 ORM 操作（在异步流程中经 sync_to_async 调用）
 # ----------------------------------------------------
-def save_or_update_album_meta(album_id):
+def _save_album_meta_sync(album_detail, album_id: str) -> Album:
+    """保存/更新 Album 元数据并清除相关缓存。"""
+    author_str = "未知"
+    if getattr(album_detail, "authors", None):
+        author_str = ",".join(album_detail.authors)
+    elif getattr(album_detail, "author", None):
+        author_str = album_detail.author
+
+    album_obj, _ = Album.objects.update_or_create(
+        jm_id=album_id,
+        defaults={
+            "name": album_detail.name.strip(),
+            "author": author_str,
+            "tags": getattr(album_detail, "tags", []),
+            "actors": getattr(album_detail, "actors", []),
+            "description": getattr(album_detail, "description", ""),
+            "total_episodes": len(getattr(album_detail, "episode_list", [])),
+        },
+    )
     try:
-        # 1. 获取详情对象
-        album_detail = get_jm_client().get_album_detail(album_id)
+        cache.delete_pattern("jmw-search-*")
+        cache.delete_pattern("jmw-local-images-*")
+        cache.delete_pattern("jmw-local-videos-*")
+        cache.delete("jmw-local-media-folders")
+    except Exception:
+        logger.debug("清除缓存失败（可能非 Redis 后端）", exc_info=True)
+    return album_obj
 
-        # 2. 提取数据 (健壮性处理)
-        # 作者：API有 .author(str) 和 .authors(list)，优先用 list 拼接
-        author_str = "未知"
-        if hasattr(album_detail, 'authors') and album_detail.authors:
-            author_str = ",".join(album_detail.authors)
-        elif hasattr(album_detail, 'author') and album_detail.author:
-            author_str = album_detail.author
 
-        # 3. 更新数据库
-        album_obj, created = Album.objects.update_or_create(
-            jm_id=album_id,
-            defaults={
-                'name': album_detail.name.strip(),
-                'author': author_str,
-                'tags': album_detail.tags if hasattr(album_detail, 'tags') else [],
-                'actors': album_detail.actors if hasattr(album_detail, 'actors') else [],
-                'description': getattr(album_detail, 'description', ''),
-                'total_episodes': len(album_detail.episode_list) if hasattr(album_detail, 'episode_list') else 0
-            }
-        )
+def _get_or_create_photo_sync(album_obj: Album, p_id, p_index, p_name) -> Photo:
+    """获取或创建 Photo 记录（不覆盖已下载状态）。"""
+    photo_obj, _ = Photo.objects.get_or_create(
+        jm_id=p_id,
+        defaults={
+            "album": album_obj,
+            "name": p_name.strip(),
+            "sort_index": int(p_index) if str(p_index).isdigit() else 0,
+        },
+    )
+    return photo_obj
 
-        # 清除搜索和本地媒体缓存
-        try:
-            cache.delete_pattern('jmw-search-*')
-            cache.delete_pattern('jmw-local-images-*')
-            cache.delete_pattern('jmw-local-videos-*')
-            cache.delete('jmw-local-media-folders')
-        except Exception:
-            pass
 
-        return album_obj, album_detail
+def _update_or_create_photo_sync(album_obj: Album, jm_id: str, name: str) -> Photo:
+    """单章下载场景：按 jm_id 更新或创建 Photo。"""
+    photo_obj, _ = Photo.objects.update_or_create(
+        jm_id=jm_id,
+        defaults={"album": album_obj, "name": name.strip(), "sort_index": 0},
+    )
+    return photo_obj
 
+
+def _mark_photo_downloaded_sync(photo_obj: Photo, save_dir_rel: str, page_arr) -> None:
+    """标记章节已下载并落库，必要时用首图设封面。"""
+    photo_obj.is_downloaded = True
+    photo_obj.save_path = save_dir_rel
+    photo_obj.save()
+    if not photo_obj.album.cover_path and page_arr:
+        photo_obj.album.cover_path = os.path.join(save_dir_rel, page_arr[0])
+        photo_obj.album.save()
+
+
+def _set_album_cover_sync(album_obj: Album, cover_rel: str) -> None:
+    album_obj.cover_path = cover_rel
+    album_obj.save()
+
+
+def _cache_episode_ids_sync(jm_id: str, episode_ids: list) -> None:
+    try:
+        cache.set(f"jmw-album-episodes-{jm_id}", episode_ids, timeout=None)
     except Exception as e:
-        print(f"Error saving album meta {album_id}: {e}")
-        return None, None
+        logger.warning("更新 Redis episode 列表失败: %s", e)
+
+
+# async 桥接（thread_sensitive=True 保证落在主线程，复用同步连接）
+save_album_meta = sync_to_async(_save_album_meta_sync, thread_sensitive=True)
+get_or_create_photo = sync_to_async(_get_or_create_photo_sync, thread_sensitive=True)
+update_or_create_photo = sync_to_async(_update_or_create_photo_sync, thread_sensitive=True)
+mark_photo_downloaded = sync_to_async(_mark_photo_downloaded_sync, thread_sensitive=True)
+set_album_cover = sync_to_async(_set_album_cover_sync, thread_sensitive=True)
+cache_episode_ids = sync_to_async(_cache_episode_ids_sync, thread_sensitive=True)
+makedirs = sync_to_async(os.makedirs, thread_sensitive=True)
 
 
 # ----------------------------------------------------
-# 核心逻辑：下载单个章节 (Photo)
+# 异步下载逻辑
 # ----------------------------------------------------
-class Task:
-    def __init__(self, photo_detail,save_dir_abs):
-        self.photo_detail_iter = photo_detail.__iter__()
-        self.save_dir_abs = save_dir_abs
-        self.p = None
-        self.filepath = ""
-    def __iter__(self):
-        return self
-    def __next__(self):
-        try:
-            self.p = next(self.photo_detail_iter)
-            self.filepath = os.path.join(self.save_dir_abs, self.p.filename)
-        except StopIteration:
-            raise StopIteration
-        return self
-def download_single_image(image):
-    get_jm_client().download_by_image_detail(image.p, image.filepath)
-def download_single_photo(photo_db_obj):
-    """
-    实际执行图片下载的函数
-    """
+async def _download_photo(client, photo_obj: Photo, album_name: str) -> bool:
+    """下载单个章节的全部图片并落库，返回是否成功。"""
     try:
-        # 1. 获取 Photo 详情对象 (这是一个 Iterable 的对象，包含 JmImageDetail)
-        photo_detail = get_jm_client().get_photo_detail(photo_db_obj.jm_id, False)
+        photo_detail = await jm_async.fetch_photo_detail(client, photo_obj.jm_id, False)
 
-        # 2. 规划保存路径: media/images/jmcomic/[本子名]/[章节名]/
-        safe_album_name = sanitize_filename(photo_db_obj.album.name)
-        safe_photo_name = sanitize_filename(photo_db_obj.name)
-        if safe_photo_name == "":
-            safe_photo_name = photo_detail.name
-        # 绝对路径 (用于保存文件)
-        save_dir_abs = os.path.join(settings.MEDIA_ROOT, 'images', 'jmcomic', safe_album_name, safe_photo_name)
-        # 相对路径 (用于数据库存储和前端访问)
-        save_dir_rel = os.path.join('images', 'jmcomic', safe_album_name, safe_photo_name)
+        safe_album_name = sanitize_filename(album_name)
+        safe_photo_name = sanitize_filename(photo_obj.name) or photo_detail.name
+        save_dir_abs = os.path.join(
+            settings.MEDIA_ROOT, "images", "jmcomic", safe_album_name, safe_photo_name
+        )
+        save_dir_rel = os.path.join("images", "jmcomic", safe_album_name, safe_photo_name)
+        await makedirs(save_dir_abs, exist_ok=True)
 
-        if not os.path.exists(save_dir_abs):
-            os.makedirs(save_dir_abs)
-
-        # 3. 遍历下载图片
-        # photo_detail 是可迭代的，image 是 JmImageDetail 对象
-        # 关键：我们同时使用 enumerate 索引和 photo_detail.page_arr 来获取文件名
-
-        if not hasattr(photo_detail, 'page_arr'):
-            print(f"Error: JmPhotoDetail for {photo_db_obj.jm_id} is missing .page_arr")
+        page_arr = getattr(photo_detail, "page_arr", None)
+        if page_arr is None:
+            logger.error("JmPhotoDetail %s 缺少 page_arr", photo_obj.jm_id)
             return False
 
-        page_arr = photo_detail.page_arr
-
-        # download
-
-        multi_thread_launcher(
-            iter_objs=Task(photo_detail,save_dir_abs),
-            apply_each_obj_func=download_single_image,
+        await jm_async.download_photo_images(
+            client, photo_detail, save_dir_abs, settings.JM_DOWNLOAD_IMAGE_CONCURRENCY
         )
-
-        # 确保 image 迭代器和 page_arr 长度一致
-        # 注意：multi_thread_launcher 已经消费了 photo_detail 迭代器完成下载
-        # 此处仅更新数据库状态
-
-        # 4. 更新 Photo 状态
-        photo_db_obj.is_downloaded = True
-        photo_db_obj.save_path = save_dir_rel
-        photo_db_obj.save()
-
-        # 5. (可选) 尝试将第一张图设为本子封面
-        if not photo_db_obj.album.cover_path and page_arr:
-            # 使用 page_arr 中的第一个文件名
-            first_img_path = os.path.join(save_dir_rel, page_arr[0])
-            photo_db_obj.album.cover_path = first_img_path
-            photo_db_obj.album.save()
-
+        await mark_photo_downloaded(photo_obj, save_dir_rel, page_arr)
         return True
-    except Exception as e:
-        print(f"Error downloading photo {photo_db_obj.jm_id}: {e}")
+    except Exception:
+        logger.exception("下载章节失败 %s", photo_obj.jm_id)
         return False
+
+
+async def _download_cover(client, album_obj: Album, jm_id: str) -> None:
+    """下载本子封面（失败仅告警，不中断任务）。"""
+    safe_album_name = sanitize_filename(album_obj.name)
+    album_dir_abs = os.path.join(settings.MEDIA_ROOT, "images", "jmcomic", safe_album_name)
+    await makedirs(album_dir_abs, exist_ok=True)
+    cover_abs = os.path.join(album_dir_abs, "cover.png")
+    cover_rel = os.path.join("images", "jmcomic", safe_album_name, "cover.png")
+    try:
+        await jm_async.download_album_cover(client, jm_id, cover_abs)
+        await set_album_cover(album_obj, cover_rel)
+        logger.info("封面已下载到: %s", cover_abs)
+    except Exception as e:
+        logger.warning("封面下载失败 %s: %s", jm_id, e)
+
+
+async def _report_progress(task, current: int, total: int, photo_id) -> None:
+    """进度上报（update_state 为同步方法，经 sync_to_async 调用）。
+
+    进度为非关键路径：上报失败（如本地 apply 模式无 task_id）仅记日志，不中断下载。
+    """
+    try:
+        await sync_to_async(task.update_state, thread_sensitive=True)(
+            state="PROGRESS",
+            meta={"current": current, "total": total, "photo_id": photo_id},
+        )
+    except Exception:
+        logger.debug("进度上报失败（可能 task_id 为空）", exc_info=True)
+
+
+async def _crawl_album(task, client, jm_id: str) -> str:
+    """下载整个本子：元数据 + 封面 + 章节级并发下载 + Redis episode 列表。"""
+    album_detail = await jm_async.fetch_album_detail(client, jm_id)
+    album_obj = await save_album_meta(album_detail, jm_id)
+
+    await _download_cover(client, album_obj, jm_id)
+
+    episodes = list(getattr(album_detail, "episode_list", []))
+    total = len(episodes)
+    photo_semaphore = asyncio.Semaphore(settings.JM_DOWNLOAD_PHOTO_CONCURRENCY)
+    completed = 0
+    progress_lock = asyncio.Lock()
+
+    async def _process_episode(photo_tuple) -> None:
+        nonlocal completed
+        p_id, p_index, p_name = photo_tuple[0], photo_tuple[1], photo_tuple[2]
+        if p_name == "":
+            p_name = p_index
+        photo_obj = await get_or_create_photo(album_obj, p_id, p_index, p_name)
+        if photo_obj.is_downloaded:
+            logger.info("跳过已下载章节 %s", p_id)
+        else:
+            async with photo_semaphore:
+                await _download_photo(client, photo_obj, album_obj.name)
+        async with progress_lock:
+            completed += 1
+            await _report_progress(task, completed, total, p_id)
+
+    await asyncio.gather(*(_process_episode(ep) for ep in episodes))
+
+    await cache_episode_ids(jm_id, [ep[0] for ep in episodes])
+    return f"Album {album_obj.name} done."
+
+
+async def _crawl_photo(task, client, jm_id: str) -> str:
+    """下载单个章节：定位所属本子 + 元数据 + 封面 + 下载。"""
+    temp_photo_detail = await jm_async.fetch_photo_detail(client, jm_id, False)
+    target_album_id = temp_photo_detail.album_id
+
+    album_detail = await jm_async.fetch_album_detail(client, target_album_id)
+    album_obj = await save_album_meta(album_detail, target_album_id)
+
+    if not album_obj.cover_path:
+        await _download_cover(client, album_obj, target_album_id)
+
+    photo_obj = await update_or_create_photo(album_obj, jm_id, temp_photo_detail.name)
+    await _report_progress(task, 0, 1, jm_id)
+    await _download_photo(client, photo_obj, album_obj.name)
+    await _report_progress(task, 1, 1, jm_id)
+    return f"Photo {photo_obj.name} done."
+
+
+async def _crawl_jm_async(task, jm_type: str, jm_id: str) -> str:
+    async with jm_async.async_jm_client() as client:
+        if jm_type == "album":
+            return await _crawl_album(task, client, jm_id)
+        return await _crawl_photo(task, client, jm_id)
+
 
 # ----------------------------------------------------
 # Celery 任务入口
 # ----------------------------------------------------
-@shared_task
-def crawl_jm_task(jm_type, jm_id):
+@shared_task(bind=True)
+def crawl_jm_task(self, jm_type: str, jm_id: str) -> str:
+    """爬取任务入口：asyncio.run 驱动异步客户端。"""
+    try:
+        return asyncio.run(_crawl_jm_async(self, jm_type, jm_id))
+    except jm_async.JmAsyncError as e:
+        logger.exception("爬取失败 [%s/%s]", jm_type, jm_id)
+        return f"失败: {e}"
 
 
-
-    # === 场景 1: 下载整个本子 (Album) ===
-    if jm_type == 'album':
-        # 1. 保存元数据
-        album_obj, album_detail = save_or_update_album_meta(jm_id)
-        if not album_obj:
-            return "Album metadata failed"
-        # 2. 下载封面
-
-        # 规划封面保存路径: media/images/jmcomic/[本子名]/cover.jpg
-        safe_album_name = sanitize_filename(album_obj.name)
-        album_dir_abs = os.path.join(settings.MEDIA_ROOT, 'images', 'jmcomic', safe_album_name)
-
-        if not os.path.exists(album_dir_abs):
-            os.makedirs(album_dir_abs)
-
-        cover_filename = 'cover.png'  # 假设我们统一保存为 cover.png
-        cover_filepath_abs = os.path.join(album_dir_abs, cover_filename)
-        cover_filepath_rel = os.path.join('images', 'jmcomic', safe_album_name, cover_filename)
-
-        try:
-            # 调用 get_jm_client().download_album_cover API
-            get_jm_client().download_album_cover(jm_id, cover_filepath_abs)
-
-            # 更新数据库中的封面路径
-            album_obj.cover_path = cover_filepath_rel
-            album_obj.save()
-            print(f"封面已下载到: {cover_filepath_abs}")
-        except Exception as e:
-            print(f"Warning: Failed to download cover for {jm_id}: {e}")
-        # 2. 遍历章节列表并下载
-        # episode_list 结构: [(photo_id, index, name), ...]
-        if hasattr(album_detail, 'episode_list'):
-            for photo_tuple in album_detail.episode_list:
-                p_id, p_index, p_name = photo_tuple[0], photo_tuple[1], photo_tuple[2]
-                if p_name == "":
-                    p_name = p_index
-                # 获取或创建 Photo 记录 (已存在的不覆盖 is_downloaded/save_path)
-                photo_obj, created = Photo.objects.get_or_create(
-                    jm_id=p_id,
-                    defaults={
-                        'album': album_obj,
-                        'name': p_name.strip(),
-                        'sort_index': int(p_index) if str(p_index).isdigit() else 0
-                    }
-                )
-
-                # 跳过已下载的章节，只下载新的
-                if photo_obj.is_downloaded:
-                    print(f"Skipping {p_id} - already downloaded")
-                    continue
-
-                # 执行下载
-                download_single_photo(photo_obj)
-
-        # 3. 更新 Redis 中的 episode 列表 (TTL 永久，供搜索页自动检测对比)
-        try:
-            episode_ids = [ep[0] for ep in album_detail.episode_list]
-            cache.set(f'jmw-album-episodes-{jm_id}', episode_ids, timeout=None)
-        except Exception as e:
-            print(f"Warning: Failed to update Redis episode list: {e}")
-
-        return f"Album {album_obj.name} done."
-
-    # === 场景 2: 下载单个章节 (Photo) ===
-    elif jm_type == 'photo':
-        # 1. 获取 Photo 详情以找到 Album ID
-        # 注意：get_photo_detail 返回的对象包含 .album_id
-        temp_photo_detail = get_jm_client().get_photo_detail(jm_id, False)
-        target_album_id = temp_photo_detail.album_id
-
-        # 2. 先保存所属 Album 的元数据 (保证外键存在)
-        album_obj, _ = save_or_update_album_meta(target_album_id)
-        if not album_obj:
-            return "Parent Album failed"
-        # 2.5. !!! 关键修正：单独下载 Photo 时，也尝试下载封面 !!!
-        if not album_obj.cover_path:
-            # 规划封面路径（与上面 Album 场景相同）
-            safe_album_name = sanitize_filename(album_obj.name)
-            album_dir_abs = os.path.join(settings.MEDIA_ROOT, 'images', 'jmcomic', safe_album_name)
-
-            if not os.path.exists(album_dir_abs):
-                os.makedirs(album_dir_abs)
-            cover_filepath_abs = os.path.join(album_dir_abs, 'cover.png')
-            cover_filepath_rel = os.path.join('images', 'jmcomic', safe_album_name, 'cover.png')
-
-            try:
-                get_jm_client().download_album_cover(target_album_id, cover_filepath_abs)
-                album_obj.cover_path = cover_filepath_rel
-                album_obj.save()
-            except Exception as e:
-                print(f"Warning: Failed to download cover for {target_album_id} during photo download: {e}")
-        # 3. 保存 Photo 记录
-        photo_obj, _ = Photo.objects.update_or_create(
-            jm_id=jm_id,
-            defaults={
-                'album': album_obj,
-                'name': temp_photo_detail.name.strip(),
-                # 单独下载时可能拿不到准确的 sort_index，暂设为0或尝试解析名字
-                'sort_index': 0
-            }
-        )
-
-        # 4. 执行下载
-        download_single_photo(photo_obj)
-
-        return f"Photo {photo_obj.name} done."
-
-
-@shared_task(name='comic.tasks.scan_local_media_task')
+@shared_task(name="comic.tasks.scan_local_media_task")
 def scan_local_media_task():
-    """定时扫描本地媒体目录并更新 Redis 缓存"""
+    """定时扫描本地媒体目录并更新 Redis 缓存。"""
     try:
         scan_local_media_folders()
         return "Local media scan completed"

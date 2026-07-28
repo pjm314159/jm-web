@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* Tailwind v4：启用基于 .dark class 的暗色模式（配合 ThemeProvider 切换 html.dark） */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── 视频播放器控制栏按钮 ─── */
+.ctrl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  color: rgba(255, 255, 255, 0.9);
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.ctrl-btn:active {
+  transform: scale(0.9);
+}
+
+/* ─── 音量滑块 ─── */
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.25);
+  outline: none;
+  cursor: pointer;
+}
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #5A67FF;
+  box-shadow: 0 0 4px rgba(90, 103, 255, 0.5);
+  cursor: pointer;
+}
+.volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #5A67FF;
+  border: none;
+  cursor: pointer;
+}
+
+/* ─── 竖向音量滑块（视频播放器） ─── */
+.volume-vertical {
+  -webkit-appearance: none;
+  appearance: none;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 3px;
+  height: 80px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.25);
+  outline: none;
+  cursor: pointer;
+}
+.volume-vertical::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #5A67FF;
+  box-shadow: 0 0 4px rgba(90, 103, 255, 0.5);
+  cursor: pointer;
+}
+.volume-vertical::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #5A67FF;
+  border: none;
+  cursor: pointer;
+}

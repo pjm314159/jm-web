@@ -35,38 +35,68 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.9"
-          cache: pip
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
 
       - name: Install dependencies
-        run: pip install -r requirements.txt ruff
+        run: uv sync --locked --group dev
+
+      - name: Prepare db directory
+        run: mkdir -p JmWebProject/db
 
       - name: Ruff lint
-        run: ruff check JmWebProject/
+        run: uv run ruff check JmWebProject/
+
+      - name: Ruff format check
+        run: uv run ruff format --check JmWebProject/
+
+      - name: Run tests
+        run: uv run pytest
 
       - name: Django system check
-        run: |
-          cd JmWebProject
-          python manage.py check
+        run: uv run python JmWebProject/manage.py check
 
       - name: Check migrations
-        run: |
-          cd JmWebProject
-          python manage.py makemigrations --check --dry-run
+        run: uv run python JmWebProject/manage.py makemigrations --check --dry-run
 
       - name: Run migrations
-        run: |
-          cd JmWebProject
-          mkdir -p db
-          python manage.py migrate
+        run: uv run python JmWebProject/manage.py migrate
 
       - name: Collect static
-        run: |
-          cd JmWebProject
-          python manage.py collectstatic --noinput
+        run: uv run python JmWebProject/manage.py collectstatic --noinput
+
+  frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check + Build
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Oxlint
+        working-directory: frontend
+        run: pnpm lint
 
   docker:
     runs-on: ubuntu-latest
@@ -94,11 +124,25 @@ jobs:
           docker compose up -d
 
       - name: Wait for services
-        run: sleep 20
+        run: sleep 30
 
-      - name: Health check
+      - name: Health check (nginx + SPA)
         run: |
-          curl -sf http://localhost:8000/ > /dev/null || (echo "Web service failed" && docker compose logs web && exit 1)
+          curl -sf http://localhost:8000/ > /dev/null || (echo "Nginx/SPA failed" && docker compose logs nginx && exit 1)
+
+      - name: Health check (Django API)
+        run: |
+          for i in $(seq 1 10); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/api/auth/token/ -H "Content-Type: application/json" -d '{}')
+            if [ "$STATUS" != "502" ] && [ "$STATUS" != "000" ]; then
+              echo "Django API responded with status $STATUS"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Django API failed"
+          docker compose logs web
+          exit 1
 
       - name: Stop services
         if: always()

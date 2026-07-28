@@ -1,0 +1,431 @@
+/* ============================================================
+   登录页 Demo 样式
+   - 液态玻璃卡片：参考 docs/frontend-design/glass/css/styles.css 的 .box
+   - 背景光斑：让玻璃折射可见
+   - 主题切换按钮的日夜交替动画在组件内用 Tailwind 实现
+   ============================================================ */
+
+/* ---- 页面背景：彩色光斑（白天 / 黑夜） ---- */
+.demo-bg {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(129, 140, 248, 0.55), transparent 40%),
+    radial-gradient(circle at 85% 15%, rgba(56, 189, 248, 0.45), transparent 42%),
+    radial-gradient(circle at 75% 80%, rgba(244, 114, 182, 0.4), transparent 45%),
+    linear-gradient(135deg, #eef2ff 0%, #e0f2fe 100%);
+  transition: background 0.7s ease;
+}
+
+.dark .demo-bg {
+  background:
+    radial-gradient(circle at 15% 20%, rgba(99, 102, 241, 0.4), transparent 40%),
+    radial-gradient(circle at 85% 15%, rgba(56, 189, 248, 0.25), transparent 42%),
+    radial-gradient(circle at 75% 80%, rgba(168, 85, 247, 0.35), transparent 45%),
+    linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+}
+
+/* 缓慢漂浮的光斑，增强玻璃折射的动态感 */
+.demo-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(60px);
+  opacity: 0.5;
+  animation: blob-float 14s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes blob-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -40px) scale(1.1); }
+  66% { transform: translate(-25px, 25px) scale(0.95); }
+}
+
+/* ---- 液态玻璃卡片 ---- */
+.glass-card {
+  --tr: 16%;
+  position: relative;
+  border-radius: 26px;
+  border: 1px double rgba(51, 51, 51, 0.08);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow:
+    inset 2px -2px 1px -1px rgba(255, 255, 255, 0.9),
+    inset -2px 2px 1px -1px rgba(255, 255, 255, 0.9),
+    inset 6px -6px 1px -6px rgba(255, 255, 255, 0.55),
+    inset -6px 6px 1px -6px rgba(255, 255, 255, 0.55),
+    inset 0 0 2px rgba(0, 0, 0, 0.5),
+    0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.dark .glass-card {
+  background: rgba(30, 41, 59, 0.25);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 2px -2px 1px -1px rgba(255, 255, 255, 0.25),
+    inset -2px 2px 1px -1px rgba(255, 255, 255, 0.25),
+    inset 6px -6px 1px -6px rgba(255, 255, 255, 0.12),
+    inset -6px 6px 1px -6px rgba(255, 255, 255, 0.12),
+    inset 0 0 2px rgba(0, 0, 0, 0.6),
+    0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* 内部暗边框（柔化边缘） */
+.glass-card::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset: 8px;
+  border-radius: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.dark .glass-card::before {
+  border-color: rgba(0, 0, 0, 0.7);
+}
+
+/* 45° 对角高光（液态玻璃精髓） */
+.glass-card::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  border-radius: 26px;
+  filter: blur(3px);
+  background: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    transparent var(--tr),
+    transparent calc(100% - var(--tr)),
+    rgba(255, 255, 255, 0.7) 100%
+  );
+  pointer-events: none;
+}
+
+.dark .glass-card::after {
+  background: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.25) 0%,
+    transparent var(--tr),
+    transparent calc(100% - var(--tr)),
+    rgba(255, 255, 255, 0.25) 100%
+  );
+}
+
+/* 内圈白边 overlay */
+.glass-overlay {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 22px;
+  filter: blur(1px);
+  pointer-events: none;
+}
+
+.dark .glass-overlay {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 卡片内容置于高光之上 */
+.glass-content {
+  position: relative;
+  z-index: 10;
+}
+
+/* ---- 玻璃风格输入框 ---- */
+.glass-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #1e293b;
+  font-size: 1rem;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  box-shadow: inset 1px 1px 1px rgba(255, 255, 255, 0.6);
+}
+
+.glass-input::placeholder {
+  color: rgba(100, 116, 139, 0.7);
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.8);
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow:
+    inset 1px 1px 1px rgba(255, 255, 255, 0.6),
+    0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.dark .glass-input {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(15, 23, 42, 0.4);
+  color: #e2e8f0;
+  box-shadow: inset 1px 1px 1px rgba(255, 255, 255, 0.08);
+}
+
+.dark .glass-input::placeholder {
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.dark .glass-input:focus {
+  border-color: rgba(129, 140, 248, 0.8);
+  background: rgba(15, 23, 42, 0.55);
+  box-shadow:
+    inset 1px 1px 1px rgba(255, 255, 255, 0.08),
+    0 0 0 3px rgba(129, 140, 248, 0.25);
+}
+
+/* ---- 液态玻璃按钮（完全参考 glass/css/styles.css 的 .box / .start-btn）---- */
+.glass-btn {
+  --tr: 20%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.9rem 1.5rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow:
+    inset 2px -2px 1px -1px rgba(255, 255, 255, 0.9),
+    inset -2px 2px 1px -1px rgba(255, 255, 255, 0.9),
+    inset 6px -6px 1px -6px rgba(255, 255, 255, 0.55),
+    inset -6px 6px 1px -6px rgba(255, 255, 255, 0.55),
+    0 4px 10px rgba(0, 0, 0, 0.12);
+  filter: brightness(0.96);
+  cursor: pointer;
+  transition: filter 0.25s, transform 0.25s;
+}
+
+.glass-btn:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.glass-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* 内部暗边框（柔化边缘） */
+.glass-btn::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset: 3px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+/* 45° 对角高光 */
+.glass-btn::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  border-radius: 14px;
+  filter: blur(3px);
+  background: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.8) 0%,
+    transparent var(--tr),
+    transparent calc(100% - var(--tr)),
+    rgba(255, 255, 255, 0.8) 100%
+  );
+  pointer-events: none;
+}
+
+/* 内圈白边 overlay */
+.glass-btn-overlay {
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 11px;
+  pointer-events: none;
+}
+
+.glass-btn-text {
+  position: relative;
+  z-index: 10;
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 1px;
+  color: #3e3e3e;
+}
+
+/* 暗色适配 */
+.dark .glass-btn {
+  background: rgba(30, 41, 59, 0.3);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 2px -2px 1px -1px rgba(255, 255, 255, 0.25),
+    inset -2px 2px 1px -1px rgba(255, 255, 255, 0.25),
+    inset 6px -6px 1px -6px rgba(255, 255, 255, 0.12),
+    inset -6px 6px 1px -6px rgba(255, 255, 255, 0.12),
+    0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+.dark .glass-btn::before {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.dark .glass-btn::after {
+  background: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.25) 0%,
+    transparent var(--tr),
+    transparent calc(100% - var(--tr)),
+    rgba(255, 255, 255, 0.25) 100%
+  );
+}
+
+.dark .glass-btn-overlay {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark .glass-btn-text {
+  color: #e2e8f0;
+}
+
+/* ---- 紧凑型液态玻璃按钮（导航栏登出用，复用 .glass-btn 视觉配方）---- */
+.glass-btn.glass-btn-sm {
+  width: auto;
+  padding: 0.4rem 1.1rem;
+  border-radius: 10px;
+}
+
+.glass-btn.glass-btn-sm::before {
+  inset: 2px;
+  border-radius: 8px;
+}
+
+.glass-btn.glass-btn-sm::after {
+  border-radius: 10px;
+}
+
+.glass-btn.glass-btn-sm .glass-btn-overlay {
+  inset: 3px;
+  border-radius: 8px;
+}
+
+.glass-btn.glass-btn-sm .glass-btn-text {
+  font-size: 0.8rem;
+  letter-spacing: 0.5px;
+}
+
+/* ---- 导航栏链接：鼠标聚焦效果（上浮 + 渐变下划线从中展开 + 光晕）---- */
+.nav-link {
+  position: relative;
+  padding: 0.25rem 0.1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: rgb(51 65 85);
+  cursor: pointer;
+  transition:
+    color 0.3s ease,
+    transform 0.3s ease,
+    text-shadow 0.3s ease;
+}
+
+.nav-link::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -3px;
+  height: 2px;
+  width: 0;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  transform: translateX(-50%);
+  transition: width 0.3s ease;
+}
+
+.nav-link:hover {
+  color: #4f46e5;
+  transform: translateY(-2px);
+  text-shadow: 0 0 14px rgba(99, 102, 241, 0.55);
+}
+
+.nav-link:hover::after {
+  width: 100%;
+}
+
+.nav-link-active {
+  color: #4f46e5;
+}
+
+.nav-link-active::after {
+  width: 100%;
+}
+
+.dark .nav-link {
+  color: rgb(226 232 240);
+}
+
+.dark .nav-link:hover {
+  color: #818cf8;
+  text-shadow: 0 0 14px rgba(129, 140, 248, 0.6);
+}
+
+.dark .nav-link-active {
+  color: #818cf8;
+}
+
+/* ---- 隐藏数字输入框的原生上下箭头 ---- */
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.no-spinner {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ---- 星星闪烁装饰动效（分页栏等液态玻璃容器用）---- */
+@keyframes twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.6) rotate(0deg); }
+  50% { opacity: 0.9; transform: scale(1.15) rotate(25deg); }
+}
+
+.twinkle-star {
+  animation: twinkle 2.6s ease-in-out infinite;
+}
+
+/* ---- 入场淡入上移动效（本地资源页卡片用，参考网站 fadeInUp）---- */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ---- 骨架屏光波流动动效（搜索详情加载态）---- */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+/* ---- 漫画阅读页：快速滑动白屏兜底 ---- */
+/* 快速滚动时未光栅化区域默认露出白色网页底色，改为跟随主题的备用底色
+   （图片流本体已改用窗口化虚拟渲染，见 ReaderShared 的 ComicPageStream） */
+html {
+  background-color: #eef2ff;
+}
+html.dark {
+  background-color: #0f172a;
+}
