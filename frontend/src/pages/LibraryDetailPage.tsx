@@ -282,9 +282,9 @@ export default function LibraryDetailPage() {
 
           {/* 元信息 */}
           <div className="flex flex-wrap items-center gap-3">
-            <MetaChip label="JM ID" value={album.jm_id} iconBg="bg-indigo-500/10 dark:bg-indigo-400/10" iconColor="text-indigo-500 dark:text-indigo-400" icon={<BookIcon className="h-4 w-4" />} />
+            <MetaChip label="JM ID" value={album.jm_id} iconBg="bg-indigo-500/10 dark:bg-indigo-400/10" iconColor="text-indigo-500 dark:text-indigo-400" icon={<BookIcon className="h-4 w-4" />} onClick={() => window.open(`/search/album/${album.jm_id}`, '_blank')} />
             {album.author && (
-              <MetaChip label="作者" value={album.author} iconBg="bg-violet-500/10 dark:bg-violet-400/10" iconColor="text-violet-500 dark:text-violet-400" icon={<UserIcon className="h-4 w-4" />} />
+              <MetaChip label="作者" value={album.author} iconBg="bg-violet-500/10 dark:bg-violet-400/10" iconColor="text-violet-500 dark:text-violet-400" icon={<UserIcon className="h-4 w-4" />} onClick={() => navigate(`/search?q=${encodeURIComponent(album.author!)}&type=keyword&page=1`)} />
             )}
             <MetaChip label="总章节" value={`${album.total_episodes} 话`} iconBg="bg-emerald-500/10 dark:bg-emerald-400/10" iconColor="text-emerald-500 dark:text-emerald-400" icon={<LayersIcon className="h-4 w-4" />} />
             <MetaChip label="入库时间" value={album.created_at.slice(0, 10)} iconBg="bg-amber-500/10 dark:bg-amber-400/10" iconColor="text-amber-500 dark:text-amber-400" icon={<CalendarIcon className="h-4 w-4" />} />
@@ -459,24 +459,31 @@ function MetaChip({
   icon,
   iconBg,
   iconColor,
+  onClick,
 }: {
   label: string
   value: string
   icon?: React.ReactNode
   iconBg?: string
   iconColor?: string
+  onClick?: () => void
 }) {
+  const Comp = onClick ? 'button' : 'div'
   return (
-    <div className="flex items-center gap-2.5 rounded-2xl border border-white/40 bg-white/30 px-4 py-2.5 backdrop-blur-sm transition-all duration-300 hover:border-white/60 hover:shadow-md dark:border-white/10 dark:bg-slate-800/40 dark:hover:border-white/20">
+    <Comp
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      className={`flex items-center gap-2.5 rounded-2xl border border-white/40 bg-white/30 px-4 py-2.5 backdrop-blur-sm transition-all duration-300 hover:border-white/60 hover:shadow-md dark:border-white/10 dark:bg-slate-800/40 dark:hover:border-white/20 ${onClick ? 'cursor-pointer active:scale-95 hover:border-indigo-300/60 dark:hover:border-indigo-500/40' : ''}`}
+    >
       {icon && (
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${iconBg ?? 'bg-slate-500/10'} ${iconColor ?? 'text-slate-500'}`}>
           {icon}
         </span>
       )}
-      <div className="min-w-0">
+      <div className="min-w-0 text-left">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{label}</div>
         <div className="truncate text-sm font-bold text-slate-800 dark:text-slate-100">{value}</div>
       </div>
-    </div>
+    </Comp>
   )
 }

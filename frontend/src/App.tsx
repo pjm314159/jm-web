@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 import './global.css'
 
@@ -22,6 +22,7 @@ import SearchDetailPage from './pages/SearchDetailPage'
 import ReaderOnlinePage from './pages/ReaderOnlinePage'
 import ReaderLibraryPage from './pages/ReaderLibraryPage'
 import ReaderLocalPage from './pages/ReaderLocalPage'
+import NotFoundPage from './pages/NotFoundPage'
 
 
 /** 登录/注册等认证页的居中布局容器 */
@@ -199,7 +200,7 @@ function AppContent() {
             }
           />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </div>
   )

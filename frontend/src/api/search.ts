@@ -71,6 +71,7 @@ export interface SearchAlbumDetail {
 export interface SearchDetailResponse {
   album: SearchAlbumDetail
   is_downloaded: boolean
+  local_album_id: number | null
   has_updates: boolean
   new_episode_count: number
 }

@@ -143,6 +143,7 @@ def get_album_detail(jm_id: str) -> dict:
             "episode_list": [_episode_to_dict(ep) for ep in album_detail.episode_list],
         },
         "is_downloaded": is_downloaded,
+        "local_album_id": local_album.id if local_album else None,
         "has_updates": has_updates,
         "new_episode_count": new_episode_count,
     }

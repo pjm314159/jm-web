@@ -11,7 +11,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
 # 按锁文件安装依赖（生产：不含 dev 组，不安装项目本身）
-RUN uv sync --locked --no-group dev --no-editable
+# cache mount：uv 下载缓存跨构建复用，避免每次重新拉包
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-group dev --no-editable
 
 # 复制整个项目代码到容器中
 COPY . /app/

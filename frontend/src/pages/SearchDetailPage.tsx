@@ -148,7 +148,7 @@ export default function SearchDetailPage() {
     )
   }
 
-  const { album, is_downloaded } = data
+  const { album, is_downloaded, local_album_id } = data
   const episodes = album.episode_list ?? []
   const epPageCount = Math.max(1, Math.ceil(episodes.length / EP_PER_PAGE))
   const safePage = Math.min(epPage, epPageCount)
@@ -215,6 +215,17 @@ export default function SearchDetailPage() {
               {dlMsg}
             </p>
           )}
+          {/* 本地详情快捷跳转 */}
+          {is_downloaded && local_album_id && (
+            <button
+              type="button"
+              onClick={() => window.open(`/library/${local_album_id}`, '_blank')}
+              className="flex items-center justify-center gap-2 rounded-2xl border border-emerald-200/50 bg-emerald-50/40 px-6 py-3 text-sm font-semibold text-emerald-600 shadow-md backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:border-emerald-300/60 hover:shadow-lg active:scale-95 dark:border-emerald-500/20 dark:bg-emerald-950/20 dark:text-emerald-400"
+            >
+              <BookIcon className="h-4 w-4" />
+              查看本地详情
+            </button>
+          )}
         </aside>
 
         {/* ─── 右侧：详情 + 章节 ─── */}
@@ -227,7 +238,7 @@ export default function SearchDetailPage() {
           {/* 元信息 */}
           <div className="flex flex-wrap items-center gap-3">
             {album.author && album.author !== '未知' && (
-              <MetaChip label="作者" value={album.author} iconBg="bg-indigo-500/10 dark:bg-indigo-400/10" iconColor="text-indigo-500 dark:text-indigo-400" icon={<BookIcon className="h-4 w-4" />} />
+              <MetaChip label="作者" value={album.author} iconBg="bg-indigo-500/10 dark:bg-indigo-400/10" iconColor="text-indigo-500 dark:text-indigo-400" icon={<BookIcon className="h-4 w-4" />} onClick={() => navigate(`/search?q=${encodeURIComponent(album.author)}&type=keyword&page=1`)} />
             )}
             <MetaChip label="点赞" value={formatNum(album.likes)} iconBg="bg-rose-500/10 dark:bg-rose-400/10" iconColor="text-rose-500 dark:text-rose-400" icon={<HeartIcon className="h-4 w-4" />} />
             <MetaChip label="观看" value={formatNum(album.views)} iconBg="bg-sky-500/10 dark:bg-sky-400/10" iconColor="text-sky-500 dark:text-sky-400" icon={<EyeIcon className="h-4 w-4" />} />
@@ -352,25 +363,32 @@ function MetaChip({
   icon,
   iconBg,
   iconColor,
+  onClick,
 }: {
   label: string
   value: string
   icon?: React.ReactNode
   iconBg?: string
   iconColor?: string
+  onClick?: () => void
 }) {
+  const Comp = onClick ? 'button' : 'div'
   return (
-    <div className="flex items-center gap-2.5 rounded-2xl border border-white/40 bg-white/30 px-4 py-2.5 backdrop-blur-sm transition-all duration-300 hover:border-white/60 hover:shadow-md dark:border-white/10 dark:bg-slate-800/40 dark:hover:border-white/20">
+    <Comp
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      className={`flex items-center gap-2.5 rounded-2xl border border-white/40 bg-white/30 px-4 py-2.5 backdrop-blur-sm transition-all duration-300 hover:border-white/60 hover:shadow-md dark:border-white/10 dark:bg-slate-800/40 dark:hover:border-white/20 ${onClick ? 'cursor-pointer active:scale-95 hover:border-indigo-300/60 dark:hover:border-indigo-500/40' : ''}`}
+    >
       {icon && (
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${iconBg ?? 'bg-slate-500/10'} ${iconColor ?? 'text-slate-500'}`}>
           {icon}
         </span>
       )}
-      <div className="min-w-0">
+      <div className="min-w-0 text-left">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{label}</div>
         <div className="truncate text-sm font-bold text-slate-800 dark:text-slate-100">{value}</div>
       </div>
-    </div>
+    </Comp>
   )
 }
 
