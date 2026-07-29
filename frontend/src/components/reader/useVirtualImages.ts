@@ -1,10 +1,10 @@
 /**
  * useVirtualImages：在线阅读器虚拟滚动窗口管理。
  *
- * - 监听滚动，计算当前视口对应的图片索引
- * - 根据 .env 配置确定「预加载窗口」和「WASM 解码窗口」
- * - 通过 Web Worker 异步 fetch + WASM 反混淆 → ImageBitmap
+ * - scroll 事件 + getBoundingClientRect 检测图片槽进入扩展视口
+ * - 进入视口的图片由 Web Worker 异步 fetch + WASM 反混淆 → ImageBitmap
  * - LRU 缓存已解码位图（以 URL 为 key），超出容量时淘汰最久未访问项
+ * - 参数通过 .env VITE_READER_* 配置
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -28,23 +28,20 @@ const IDLE_ENTRY: ImageEntry = { status: 'idle', bitmap: null, width: 0, height:
 
 export function useVirtualImages(images: SearchReaderImage[]) {
   const [stateMap, setStateMap] = useState<ImageStateMap>({})
-  const [firstVisible, setFirstVisible] = useState(0)
 
   const workerRef = useRef<Worker | null>(null)
   const cacheRef = useRef<ImageBitmapLRU>(new ImageBitmapLRU(READER_CONFIG.CACHE_SIZE))
-  const pendingRef = useRef(new Set<number>())
   const reqIdRef = useRef(0)
   const rafRef = useRef(0)
   /** reqId → index 映射 */
   const reqIndexMap = useRef(new Map<number, number>())
-  /** images 引用（用于在 worker 回调中取 url） */
+  /** images 引用 */
   const imagesRef = useRef(images)
   imagesRef.current = images
-  /** stateMap 镜像 ref（避免 load-window effect 的 stale closure） */
-  const stateMapRef = useRef(stateMap)
-  stateMapRef.current = stateMap
+  /** 已请求过的索引（避免重复请求） */
+  const requestedRef = useRef(new Set<number>())
 
-  // 初始化 Worker（整个组件生命周期只创建一次）
+  // 初始化 Worker
   useEffect(() => {
     const worker = new Worker(new URL('../../workers/decode.worker.ts', import.meta.url), {
       type: 'module',
@@ -56,7 +53,6 @@ export function useVirtualImages(images: SearchReaderImage[]) {
       const idx = reqIndexMap.current.get(id)
       if (idx === undefined) return
       reqIndexMap.current.delete(id)
-      pendingRef.current.delete(idx)
 
       if (error || !bitmap) {
         setStateMap((prev) => ({
@@ -66,7 +62,6 @@ export function useVirtualImages(images: SearchReaderImage[]) {
         return
       }
 
-      // 以 URL 为缓存 key（跨页不冲突）
       const url = imagesRef.current[idx]?.url ?? String(idx)
       cacheRef.current.set(url, bitmap)
 
@@ -82,24 +77,23 @@ export function useVirtualImages(images: SearchReaderImage[]) {
     }
   }, [])
 
-  // images 引用变化（切页/切章）→ 重置所有状态
+  // images 变化（切页/切章）→ 重置
   useEffect(() => {
     cacheRef.current.clear()
-    pendingRef.current.clear()
     reqIndexMap.current.clear()
+    requestedRef.current.clear()
     setStateMap({})
-    setFirstVisible(0)
   }, [images])
 
   // 请求解码单张图片
   const requestDecode = useCallback((idx: number) => {
     const imgs = imagesRef.current
     if (idx < 0 || idx >= imgs.length) return
-    if (pendingRef.current.has(idx)) return
+    if (requestedRef.current.has(idx)) return
+    requestedRef.current.add(idx)
 
     const url = imgs[idx].url
     if (cacheRef.current.has(url)) {
-      // 缓存命中
       const bmp = cacheRef.current.get(url)!
       setStateMap((prev) => ({
         ...prev,
@@ -111,7 +105,6 @@ export function useVirtualImages(images: SearchReaderImage[]) {
     const worker = workerRef.current
     if (!worker) return
 
-    pendingRef.current.add(idx)
     const id = ++reqIdRef.current
     reqIndexMap.current.set(id, idx)
 
@@ -124,66 +117,52 @@ export function useVirtualImages(images: SearchReaderImage[]) {
     worker.postMessage(msg)
   }, [])
 
-  // 滚动追踪：二分查找 firstVisible
+  // 滚动监听：直接检查元素位置，触发加载
   useEffect(() => {
+    if (images.length === 0) return
+
+    const screens = Math.max(READER_CONFIG.PREFETCH_ABOVE, READER_CONFIG.PREFETCH_BELOW)
+    const marginPx = screens * window.innerHeight
+
+    const check = () => {
+      const els = document.querySelectorAll<HTMLElement>('[data-vimg-idx]')
+      const viewTop = -marginPx
+      const viewBot = window.innerHeight + marginPx
+
+      els.forEach((el) => {
+        const idx = Number(el.dataset.vimgIdx)
+        if (Number.isNaN(idx) || requestedRef.current.has(idx)) return
+        const rect = el.getBoundingClientRect()
+        if (rect.bottom >= viewTop && rect.top <= viewBot) {
+          requestDecode(idx)
+        }
+      })
+    }
+
     const onScroll = () => {
       if (rafRef.current) return
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = 0
-        const els = document.querySelectorAll<HTMLElement>('[data-vimg-idx]')
-        if (els.length === 0) return
-        const scrollY = window.scrollY + 10
-        let lo = 0
-        let hi = els.length - 1
-        let result = 0
-        while (lo <= hi) {
-          const mid = (lo + hi) >> 1
-          if (els[mid].offsetTop <= scrollY) {
-            result = mid
-            lo = mid + 1
-          } else {
-            hi = mid - 1
-          }
-        }
-        setFirstVisible(result)
+        check()
       })
     }
+
     window.addEventListener('scroll', onScroll, { passive: true })
-    onScroll()
+    window.addEventListener('resize', onScroll, { passive: true })
+    // 初始检查
+    check()
+
     return () => {
       window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
-  }, [])
-
-  // 加载窗口管理：firstVisible 变化时请求解码
-  useEffect(() => {
-    if (images.length === 0) return
-
-    const { PREFETCH_ABOVE, PREFETCH_BELOW, MAX_LOADED } = READER_CONFIG
-    let start = firstVisible - PREFETCH_ABOVE
-    let end = firstVisible + PREFETCH_BELOW
-    start = Math.max(0, start)
-    end = Math.min(images.length - 1, end)
-
-    // 范围超过 MAX_LOADED 时收缩（优先保留下方）
-    if (end - start + 1 > MAX_LOADED) {
-      start = Math.max(0, end - MAX_LOADED + 1)
-    }
-
-    const sm = stateMapRef.current
-    for (let i = start; i <= end; i++) {
-      const entry = sm[i]
-      if (!entry || entry.status === 'idle') {
-        requestDecode(i)
-      }
-    }
-  }, [firstVisible, images, requestDecode])
+  }, [images, requestDecode])
 
   const getEntry = useCallback(
     (idx: number): ImageEntry => stateMap[idx] ?? IDLE_ENTRY,
     [stateMap],
   )
 
-  return { getEntry, stateMap, firstVisible }
+  return { getEntry, stateMap }
 }

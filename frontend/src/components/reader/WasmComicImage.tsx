@@ -37,10 +37,13 @@ function PixelBrokenIcon({ className = '' }: { className?: string }) {
 export const WasmComicImage = memo(function WasmComicImage({
   entry,
   index,
+  slotIdx,
 }: {
   entry: ImageEntry
-  /** 全局图片序号（0 起） */
+  /** 全局图片序号（0 起），供 data-reader-index 定位当前页 */
   index: number
+  /** 本页内局部索引，供滚动检测使用 */
+  slotIdx: number
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -60,7 +63,7 @@ export const WasmComicImage = memo(function WasmComicImage({
 
   return (
     <div
-      data-vimg-idx={index}
+      data-vimg-idx={slotIdx}
       data-reader-index={index}
       className="relative mx-auto w-fit"
       style={status === 'done' ? undefined : { minHeight: status === 'idle' ? '60vh' : 200 }}

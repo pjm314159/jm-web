@@ -2,7 +2,7 @@
  * 在线漫画阅读页（正式版，对接 S4/S3）：搜索阅览入口。
  * - 数据：GET /api/search/photos/:photoId/images/（{url,num} 列表，300 图/页）
  *        + GET /api/search/albums/:albumId/episodes/（章节面板）
- * - 图片 Canvas 反混淆渲染（JmScrambledImage，算法与旧模板一致）
+ * - 图片 WASM Worker 反混淆渲染（虚拟滚动按需解码）
  * - 底栏单层级：上一话 | 章节面板 | 页码选择跳转（x/y 即入口） | 下一话
  * - 章内分页走 ?page= 查询参数（可分享/后退），切章节切换路由 photoId
  * 路由：/search/reader/:photoId
@@ -12,6 +12,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { getSearchAlbumEpisodes, getSearchPhotoImages } from '../api/search'
+import type { SearchReaderImage } from '../api/search'
 import { WasmComicImage } from '../components/reader/WasmComicImage'
 import { useVirtualImages } from '../components/reader/useVirtualImages'
 import {
@@ -32,6 +33,9 @@ import {
 } from '../components/reader/ReaderShell'
 import { useCurrentImageIndex } from '../components/reader/useCurrentImageIndex'
 import { readerBgClass, useReaderSettings } from '../components/reader/useReaderSettings'
+
+/** 稳定空数组引用，避免 useVirtualImages 无限循环 */
+const EMPTY_IMAGES: SearchReaderImage[] = []
 
 export default function ReaderOnlinePage({
   isDark,
@@ -78,7 +82,7 @@ export default function ReaderOnlinePage({
   const currentImage = useCurrentImageIndex(ready, `${photoId}-${page}`, startIndex)
 
   /* WASM 虚拟滚动窗口 */
-  const { getEntry } = useVirtualImages(data?.images ?? [])
+  const { getEntry } = useVirtualImages(data?.images ?? EMPTY_IMAGES)
 
   if (isError) {
     return <ReaderError message="加载阅读数据失败，可能是网络问题或章节不存在。" onBack={() => navigate(-1)} />
@@ -142,7 +146,7 @@ export default function ReaderOnlinePage({
         ) : (
           <>
             {data.images.map((_, i) => (
-              <WasmComicImage key={data.images[i].url} entry={getEntry(i)} index={startIndex + i} />
+              <WasmComicImage key={data.images[i].url} entry={getEntry(i)} index={startIndex + i} slotIdx={i} />
             ))}
             <EndOfPageLine
               text={
