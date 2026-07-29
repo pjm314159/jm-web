@@ -16,6 +16,7 @@
 import asyncio
 import logging
 import os
+import time
 
 from asgiref.sync import sync_to_async
 from celery import shared_task
@@ -62,17 +63,49 @@ def _save_album_meta_sync(album_detail, album_id: str) -> Album:
     return album_obj
 
 
-def _get_or_create_photo_sync(album_obj: Album, p_id, p_index, p_name) -> Photo:
-    """获取或创建 Photo 记录（不覆盖已下载状态）。"""
-    photo_obj, _ = Photo.objects.get_or_create(
-        jm_id=p_id,
-        defaults={
-            "album": album_obj,
-            "name": p_name.strip(),
-            "sort_index": int(p_index) if str(p_index).isdigit() else 0,
-        },
-    )
-    return photo_obj
+def _bulk_ensure_photos_sync(album_obj: Album, episodes: list) -> dict[str, Photo]:
+    """B2: 一次性确保所有章节记录存在，返回 {jm_id: Photo} 映射。
+
+    替代逐章 get_or_create（N 次 SQL → 1-2 次）。
+    """
+    ep_ids = [str(ep[0]) for ep in episodes]
+    existing = {p.jm_id: p for p in Photo.objects.filter(jm_id__in=ep_ids)}
+
+    to_create = []
+    for ep in episodes:
+        p_id, p_index, p_name = str(ep[0]), ep[1], ep[2]
+        if p_id not in existing:
+            to_create.append(
+                Photo(
+                    album=album_obj,
+                    jm_id=p_id,
+                    name=(p_name or str(p_index)).strip(),
+                    sort_index=int(p_index) if str(p_index).isdigit() else 0,
+                )
+            )
+    if to_create:
+        Photo.objects.bulk_create(to_create, ignore_conflicts=True)
+        # 重新查询以获取含 pk 的完整对象
+        new_ids = [p.jm_id for p in to_create]
+        for p in Photo.objects.filter(jm_id__in=new_ids):
+            existing[p.jm_id] = p
+    return existing
+
+
+def _bulk_mark_downloaded_sync(photos: list[Photo], save_paths: dict[str, str]) -> None:
+    """B2: 批量标记章节已下载（1 次 UPDATE 替代 N 次 save）。"""
+    for p in photos:
+        p.is_downloaded = True
+        p.save_path = save_paths.get(p.jm_id, p.save_path)
+    Photo.objects.bulk_update(photos, ["is_downloaded", "save_path"])
+    # 封面回退：若专辑无封面，用第一个完成章节的首图
+    if photos:
+        album = photos[0].album
+        if not album.cover_path:
+            first_path = save_paths.get(photos[0].jm_id)
+            if first_path:
+                album.cover_path = os.path.join(first_path, "00001.webp")
+                album.save(update_fields=["cover_path"])
 
 
 def _update_or_create_photo_sync(album_obj: Album, jm_id: str, name: str) -> Photo:
@@ -108,7 +141,8 @@ def _cache_episode_ids_sync(jm_id: str, episode_ids: list) -> None:
 
 # async 桥接（thread_sensitive=True 保证落在主线程，复用同步连接）
 save_album_meta = sync_to_async(_save_album_meta_sync, thread_sensitive=True)
-get_or_create_photo = sync_to_async(_get_or_create_photo_sync, thread_sensitive=True)
+bulk_ensure_photos = sync_to_async(_bulk_ensure_photos_sync, thread_sensitive=True)
+bulk_mark_downloaded = sync_to_async(_bulk_mark_downloaded_sync, thread_sensitive=True)
 update_or_create_photo = sync_to_async(_update_or_create_photo_sync, thread_sensitive=True)
 mark_photo_downloaded = sync_to_async(_mark_photo_downloaded_sync, thread_sensitive=True)
 set_album_cover = sync_to_async(_set_album_cover_sync, thread_sensitive=True)
@@ -119,8 +153,8 @@ makedirs = sync_to_async(os.makedirs, thread_sensitive=True)
 # ----------------------------------------------------
 # 异步下载逻辑
 # ----------------------------------------------------
-async def _download_photo(client, photo_obj: Photo, album_name: str) -> bool:
-    """下载单个章节的全部图片并落库，返回是否成功。"""
+async def _download_photo(client, photo_obj: Photo, album_name: str) -> str | None:
+    """下载单个章节的全部图片，返回 save_dir_rel（成功）或 None（失败）。"""
     try:
         photo_detail = await jm_async.fetch_photo_detail(client, photo_obj.jm_id, False)
 
@@ -135,16 +169,15 @@ async def _download_photo(client, photo_obj: Photo, album_name: str) -> bool:
         page_arr = getattr(photo_detail, "page_arr", None)
         if page_arr is None:
             logger.error("JmPhotoDetail %s 缺少 page_arr", photo_obj.jm_id)
-            return False
+            return None
 
         await jm_async.download_photo_images(
             client, photo_detail, save_dir_abs, settings.JM_DOWNLOAD_IMAGE_CONCURRENCY
         )
-        await mark_photo_downloaded(photo_obj, save_dir_rel, page_arr)
-        return True
+        return save_dir_rel
     except Exception:
         logger.exception("下载章节失败 %s", photo_obj.jm_id)
-        return False
+        return None
 
 
 async def _download_cover(client, album_obj: Album, jm_id: str) -> None:
@@ -162,6 +195,11 @@ async def _download_cover(client, album_obj: Album, jm_id: str) -> None:
         logger.warning("封面下载失败 %s: %s", jm_id, e)
 
 
+# B5: 进度上报节流参数
+_PROGRESS_INTERVAL = 3.0  # 秒
+_PROGRESS_PCT_STEP = 10  # 百分比步长
+
+
 async def _report_progress(task, current: int, total: int, photo_id) -> None:
     """进度上报（update_state 为同步方法，经 sync_to_async 调用）。
 
@@ -177,7 +215,11 @@ async def _report_progress(task, current: int, total: int, photo_id) -> None:
 
 
 async def _crawl_album(task, client, jm_id: str) -> str:
-    """下载整个本子：元数据 + 封面 + 章节级并发下载 + Redis episode 列表。"""
+    """下载整个本子：元数据 + 封面 + 章节级并发下载 + Redis episode 列表。
+
+    B2: 批量创建 Photo + 批量标记已下载（200+ SQL → ~5 次）。
+    B5: 进度上报节流（每 3s 或每 10% 上报一次）。
+    """
     album_detail = await jm_async.fetch_album_detail(client, jm_id)
     album_obj = await save_album_meta(album_detail, jm_id)
 
@@ -185,26 +227,64 @@ async def _crawl_album(task, client, jm_id: str) -> str:
 
     episodes = list(getattr(album_detail, "episode_list", []))
     total = len(episodes)
+
+    # B2: 一次性确保所有章节记录存在
+    photo_map = await bulk_ensure_photos(album_obj, episodes)
+
     photo_semaphore = asyncio.Semaphore(settings.JM_DOWNLOAD_PHOTO_CONCURRENCY)
     completed = 0
+    last_report_time = time.monotonic()
+    last_report_pct = 0
     progress_lock = asyncio.Lock()
+    # B2: 收集已完成章节，批量落库
+    done_photos: list[Photo] = []
+    done_paths: dict[str, str] = {}
+
+    async def _flush_downloaded() -> None:
+        """B2: 每 5 章批量 UPDATE 一次。"""
+        nonlocal done_photos, done_paths
+        if len(done_photos) >= 5:
+            await bulk_mark_downloaded(done_photos, done_paths)
+            done_photos = []
+            done_paths = {}
 
     async def _process_episode(photo_tuple) -> None:
-        nonlocal completed
-        p_id, p_index, p_name = photo_tuple[0], photo_tuple[1], photo_tuple[2]
-        if p_name == "":
-            p_name = p_index
-        photo_obj = await get_or_create_photo(album_obj, p_id, p_index, p_name)
+        nonlocal completed, last_report_time, last_report_pct
+        p_id = str(photo_tuple[0])
+        photo_obj = photo_map.get(p_id)
+        if photo_obj is None:
+            return
         if photo_obj.is_downloaded:
             logger.info("跳过已下载章节 %s", p_id)
         else:
             async with photo_semaphore:
-                await _download_photo(client, photo_obj, album_obj.name)
+                save_rel = await _download_photo(client, photo_obj, album_obj.name)
+                if save_rel:
+                    async with progress_lock:
+                        done_photos.append(photo_obj)
+                        done_paths[p_id] = save_rel
+                    await _flush_downloaded()
+
+        # B5: 节流进度上报
         async with progress_lock:
             completed += 1
-            await _report_progress(task, completed, total, p_id)
+            now = time.monotonic()
+            pct = int(completed / total * 100) if total else 100
+            if (
+                now - last_report_time >= _PROGRESS_INTERVAL
+                or pct - last_report_pct >= _PROGRESS_PCT_STEP
+            ):
+                await _report_progress(task, completed, total, p_id)
+                last_report_time = now
+                last_report_pct = pct
 
     await asyncio.gather(*(_process_episode(ep) for ep in episodes))
+
+    # B2: 落库剩余已完成章节
+    if done_photos:
+        await bulk_mark_downloaded(done_photos, done_paths)
+    # B5: 确保最终 100% 上报
+    await _report_progress(task, total, total, None)
 
     await cache_episode_ids(jm_id, [ep[0] for ep in episodes])
     return f"Album {album_obj.name} done."
@@ -223,7 +303,9 @@ async def _crawl_photo(task, client, jm_id: str) -> str:
 
     photo_obj = await update_or_create_photo(album_obj, jm_id, temp_photo_detail.name)
     await _report_progress(task, 0, 1, jm_id)
-    await _download_photo(client, photo_obj, album_obj.name)
+    save_rel = await _download_photo(client, photo_obj, album_obj.name)
+    if save_rel:
+        await bulk_mark_downloaded([photo_obj], {jm_id: save_rel})
     await _report_progress(task, 1, 1, jm_id)
     return f"Photo {photo_obj.name} done."
 

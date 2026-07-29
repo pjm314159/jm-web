@@ -1,58 +1,112 @@
-"""jmcomic 查询封装（阶段 2：async_to_sync 桥接异步客户端）。
+"""jmcomic 查询封装（B3：单例客户端连接池复用）。
 
 本模块是 views/search/library 服务访问 jmcomic 的唯一入口，
 视图层不直接 import jmcomic（见 docs/design.md 3 分层约束）。
 
-阶段 2 起，查询类调用经 asgiref.async_to_sync 桥接 jm_async 异步客户端：
-DRF 视图保持同步 def，每次调用新建异步客户端（独立事件循环），
-ORM 操作仍留在同步侧，规避 SQLite 异步连接问题（docs/plan.md 4.3）。
-纯计算函数（封面 URL / 反混淆序号）保持同步，无需网络。
+B3 优化：维护一个常驻后台事件循环 + 单例异步客户端，
+所有查询类调用共享同一 TCP/TLS 连接池，省去重复握手（-200~500ms/次）。
+Gunicorn 多进程下每进程一个客户端（OK）。
 """
 
-from asgiref.sync import async_to_sync
+import asyncio
+import logging
+import threading
+
 from jmcomic import JmcomicText, JmImageTool
 
 from . import jm_async
 
+logger = logging.getLogger(__name__)
+
+# ------------------------------------------------------------------
+# B3: 常驻事件循环 + 单例客户端
+# ------------------------------------------------------------------
+_loop: asyncio.AbstractEventLoop | None = None
+_loop_thread: threading.Thread | None = None
+_client = None  # jmcomic async client 实例
+_client_lock = threading.Lock()
+
+
+def _ensure_loop() -> asyncio.AbstractEventLoop:
+    """B3: 启动常驻后台事件循环（进程内单例）。"""
+    global _loop, _loop_thread
+    if _loop is not None and _loop.is_running():
+        return _loop
+
+    def _run():
+        global _loop
+        _loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_loop)
+        _loop.run_forever()
+
+    _loop_thread = threading.Thread(target=_run, daemon=True, name="jm-sync-loop")
+    _loop_thread.start()
+    # 等待循环就绪
+    import time
+
+    for _ in range(100):
+        if _loop is not None and _loop.is_running():
+            break
+        time.sleep(0.01)
+    return _loop
+
+
+def _run_coro(coro):
+    """B3: 在常驻循环上执行协程并同步等待结果。"""
+    loop = _ensure_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result(timeout=60)
+
+
+async def _get_client():
+    """B3: 获取/创建单例异步客户端（连接池复用）。"""
+    global _client
+    if _client is None:
+        from jmcomic import JmOption
+
+        _client = JmOption.default().new_jm_async_client()
+        await _client.__aenter__()
+    return _client
+
 
 async def _fetch_album_detail(album_id: str):
-    async with jm_async.async_jm_client() as client:
-        return await jm_async.fetch_album_detail(client, album_id)
+    client = await _get_client()
+    return await jm_async.fetch_album_detail(client, album_id)
 
 
 async def _fetch_photo_detail(photo_id: str, fetch_scramble_id: bool):
-    async with jm_async.async_jm_client() as client:
-        return await jm_async.fetch_photo_detail(client, photo_id, fetch_scramble_id)
+    client = await _get_client()
+    return await jm_async.fetch_photo_detail(client, photo_id, fetch_scramble_id)
 
 
 async def _search_site(query: str, page: int):
-    async with jm_async.async_jm_client() as client:
-        return await jm_async.search_site(client, query, page)
+    client = await _get_client()
+    return await jm_async.search_site(client, query, page)
 
 
 async def _search_tag(query: str, page: int):
-    async with jm_async.async_jm_client() as client:
-        return await jm_async.search_tag(client, query, page)
+    client = await _get_client()
+    return await jm_async.search_tag(client, query, page)
 
 
 def fetch_album_detail(album_id: str):
     """获取本子详情（JmAlbumDetail）。"""
-    return async_to_sync(_fetch_album_detail)(album_id)
+    return _run_coro(_fetch_album_detail(album_id))
 
 
 def fetch_photo_detail(photo_id: str, fetch_scramble_id: bool = False):
     """获取章节详情（JmPhotoDetail）。"""
-    return async_to_sync(_fetch_photo_detail)(photo_id, fetch_scramble_id)
+    return _run_coro(_fetch_photo_detail(photo_id, fetch_scramble_id))
 
 
 def search_site(query: str, page: int = 1):
     """关键字搜索（JmSearchPage）。"""
-    return async_to_sync(_search_site)(query, page)
+    return _run_coro(_search_site(query, page))
 
 
 def search_tag(query: str, page: int = 1):
     """标签搜索（JmSearchPage）。"""
-    return async_to_sync(_search_tag)(query, page)
+    return _run_coro(_search_tag(query, page))
 
 
 def get_album_cover_url(album_id: str) -> str:

@@ -102,7 +102,8 @@ async def download_album_cover(client, album_id: str, save_path: str) -> None:
         img_resp = await client.get_jm_image(cover_url)
     except JmcomicException as e:
         raise map_jm_exception(e) from e
-    await sync_to_async(img_resp.transfer_to, thread_sensitive=True)(
+    # B1: thread_sensitive=False → 图片 I/O 落入线程池，不占 ORM 主线程
+    await sync_to_async(img_resp.transfer_to, thread_sensitive=False)(
         save_path, None, False, cover_url
     )
 
@@ -125,7 +126,8 @@ async def download_photo_images(
             filepath = f"{save_dir}/{image.filename}"
             try:
                 img_resp = await client.get_jm_image(image.download_url)
-                await sync_to_async(img_resp.transfer_to, thread_sensitive=True)(
+                # B1: thread_sensitive=False → 解码+写盘在线程池并行，不阻塞 ORM 主线程
+                await sync_to_async(img_resp.transfer_to, thread_sensitive=False)(
                     filepath, int(image.scramble_id), True, image.download_url
                 )
                 return True
