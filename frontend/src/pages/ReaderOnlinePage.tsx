@@ -12,7 +12,8 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { getSearchAlbumEpisodes, getSearchPhotoImages } from '../api/search'
-import { JmScrambledImage } from '../components/reader/ComicImage'
+import { WasmComicImage } from '../components/reader/WasmComicImage'
+import { useVirtualImages } from '../components/reader/useVirtualImages'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -76,6 +77,9 @@ export default function ReaderOnlinePage({
   const startIndex = data ? data.current_start_index - 1 : 0
   const currentImage = useCurrentImageIndex(ready, `${photoId}-${page}`, startIndex)
 
+  /* WASM 虚拟滚动窗口 */
+  const { getEntry } = useVirtualImages(data?.images ?? [])
+
   if (isError) {
     return <ReaderError message="加载阅读数据失败，可能是网络问题或章节不存在。" onBack={() => navigate(-1)} />
   }
@@ -131,14 +135,14 @@ export default function ReaderOnlinePage({
         onBack={() => (albumId ? navigate(`/search/album/${albumId}`) : navigate(-1))}
       />
 
-      {/* 图片流：window 滚动一页到底，无缝拼接（与旧代码同样全量挂载） */}
+      {/* 图片流：WASM 虚拟滚动窗口，按需解码 */}
       <div onClick={handleStreamClick} className="min-h-screen cursor-pointer pb-32">
         {!ready ? (
           <ReaderSkeleton />
         ) : (
           <>
-            {data.images.map((img, i) => (
-              <JmScrambledImage key={img.url} url={img.url} num={img.num} index={startIndex + i} />
+            {data.images.map((_, i) => (
+              <WasmComicImage key={data.images[i].url} entry={getEntry(i)} index={startIndex + i} />
             ))}
             <EndOfPageLine
               text={

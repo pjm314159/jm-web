@@ -46,3 +46,7 @@ celerybeat-schedule
 frontend/node_modules/
 frontend/dist/
 frontend/*.local
+
+# Rust WASM 构建产物
+frontend/wasm/target/
+frontend/wasm/pkg/
