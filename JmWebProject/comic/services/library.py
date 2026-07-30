@@ -28,8 +28,8 @@ def get_library_albums():
     return Album.objects.filter(photos__is_downloaded=True).distinct().order_by("-updated_at")
 
 
-def search_library_albums(q: str = "", tags: list[str] | None = None, author: str = ""):
-    """L1+：本地库高级搜索——名称/作者模糊 + 多 tag 交集筛选 + 作者精确筛选。
+def search_library_albums(q: str = "", tags: list[str] | None = None, authors: list[str] | None = None):
+    """L1+：本地库高级搜索——名称/作者模糊 + 多 tag 交集筛选 + 多作者筛选。
 
     注意：SQLite 不支持 JSONField __contains，改用 Python 层过滤。
     """
@@ -38,8 +38,8 @@ def search_library_albums(q: str = "", tags: list[str] | None = None, author: st
         from django.db.models import Q
 
         qs = qs.filter(Q(name__icontains=q) | Q(author__icontains=q))
-    if author:
-        qs = qs.filter(author__iexact=author)
+    if authors:
+        qs = qs.filter(author__in=authors)
     if tags:
         # SQLite 兼容：在 Python 层做 tag 交集筛选
         album_ids = [

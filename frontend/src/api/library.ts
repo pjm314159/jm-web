@@ -46,18 +46,18 @@ export async function getAlbums(page = 1): Promise<Paginated<Album>> {
   return data
 }
 
-/** L1+：本地库高级搜索（名称/作者模糊 + 多 tag 交集筛选 + 作者筛选）。 */
+/** L1+：本地库高级搜索（名称/作者模糊 + 多 tag 交集筛选 + 多作者筛选）。 */
 export async function searchLibraryAlbums(params: {
   q?: string
   tags?: string[]
-  author?: string
+  authors?: string[]
   page?: number
 }): Promise<Paginated<Album>> {
   const { data } = await apiClient.get<Paginated<Album>>('/library/albums/', {
     params: {
       q: params.q || undefined,
       tags: params.tags?.length ? params.tags.join(',') : undefined,
-      author: params.author || undefined,
+      authors: params.authors?.length ? params.authors.join(',') : undefined,
       page: params.page || 1,
     },
   })

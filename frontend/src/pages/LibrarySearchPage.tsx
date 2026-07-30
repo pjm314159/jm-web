@@ -69,16 +69,32 @@ export default function LibrarySearchPage() {
   const [inputValue, setInputValue] = useState('')
   const [query, setQuery] = useState('')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const [selectedAuthor, setSelectedAuthor] = useState('')
+  const [selectedAuthors, setSelectedAuthors] = useState<string[]>([])
   const [page, setPage] = useState(1)
   const [tagFilter, setTagFilter] = useState('')
   const [authorFilter, setAuthorFilter] = useState('')
   // 同一时间只展开一个筛选面板
   const [activePanel, setActivePanel] = useState<'tag' | 'author' | null>('tag')
+  // 收起动画期间保留上次面板内容，避免内容瞬间消失
+  const [displayedPanel, setDisplayedPanel] = useState<'tag' | 'author' | null>('tag')
+  const lastPanelRef = useRef<'tag' | 'author'>('tag')
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const tagPanelRef = useRef<HTMLDivElement>(null)
 
   const togglePanel = (panel: 'tag' | 'author') => {
-    setActivePanel((prev) => (prev === panel ? null : panel))
+    setActivePanel((prev) => {
+      if (prev === panel) {
+        // 收起：保留内容供动画展示，动画结束后清除
+        clearTimeout(collapseTimerRef.current)
+        collapseTimerRef.current = setTimeout(() => setDisplayedPanel(null), 500)
+        return null
+      }
+      // 展开/切换：立即显示新内容
+      clearTimeout(collapseTimerRef.current)
+      lastPanelRef.current = panel
+      setDisplayedPanel(panel)
+      return panel
+    })
   }
 
   // 获取 tag：无搜索词时返回 top10，有搜索词时后端搜索全部
@@ -102,8 +118,8 @@ export default function LibrarySearchPage() {
 
   // 搜索查询（允许空搜索返回全部，keepPreviousData 避免切换时白屏闪烁）
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['library-search', query, selectedTags, selectedAuthor, page],
-    queryFn: () => searchLibraryAlbums({ q: query, tags: selectedTags, author: selectedAuthor, page }),
+    queryKey: ['library-search', query, selectedTags, selectedAuthors, page],
+    queryFn: () => searchLibraryAlbums({ q: query, tags: selectedTags, authors: selectedAuthors, page }),
     placeholderData: keepPreviousData,
   })
 
@@ -142,19 +158,25 @@ export default function LibrarySearchPage() {
       return next
     })
     setPage(1)
-    // 即时搜索（如果已有查询或选了 tag）
     setQuery(inputValue)
   }
 
-  const selectAuthor = (author: string) => {
-    setSelectedAuthor((prev) => (prev === author ? '' : author))
+  const toggleAuthor = (author: string) => {
+    setSelectedAuthors((prev) => {
+      const next = prev.includes(author) ? prev.filter((a) => a !== author) : [...prev, author]
+      return next
+    })
     setPage(1)
     setQuery(inputValue)
   }
 
-
   const removeTag = (tag: string) => {
     setSelectedTags((prev) => prev.filter((t) => t !== tag))
+    setPage(1)
+  }
+
+  const removeAuthor = (author: string) => {
+    setSelectedAuthors((prev) => prev.filter((a) => a !== author))
     setPage(1)
   }
 
@@ -205,32 +227,43 @@ export default function LibrarySearchPage() {
 
       {/* 筛选面板（与搜索栏同宽，按钮同行，下拉共享位置） */}
       <div className="mx-auto mb-8 w-full max-w-2xl">
-        {/* 已选指示条 */}
-        {(selectedTags.length > 0 || selectedAuthor) && (
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">已选</span>
-            {selectedAuthor && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-100/70 px-3 py-1.5 text-xs font-bold text-purple-600 shadow-sm dark:border-white/10 dark:bg-slate-800/50 dark:text-purple-400">
-                <UserIcon className="h-3 w-3" />
-                {selectedAuthor}
-                <button type="button" onClick={() => selectAuthor(selectedAuthor)} className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-slate-200/60 dark:hover:bg-slate-700/60">
-                  <XIcon className="h-3 w-3" />
-                </button>
-              </span>
-            )}
-            {selectedTags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-100/70 px-3 py-1.5 text-xs font-bold text-indigo-600 shadow-sm dark:border-white/10 dark:bg-slate-800/50 dark:text-indigo-400"
-              >
-                {tag}
-                <button type="button" onClick={() => removeTag(tag)} className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-slate-200/60 dark:hover:bg-slate-700/60">
-                  <XIcon className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
+        {/* 已选指示条（丝滑展开，避免布局跳动） */}
+        <div
+          className="grid transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+          style={{
+            gridTemplateRows: (selectedTags.length > 0 || selectedAuthors.length > 0) ? '1fr' : '0fr',
+            opacity: (selectedTags.length > 0 || selectedAuthors.length > 0) ? 1 : 0,
+          }}
+        >
+          <div className="overflow-hidden">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">已选</span>
+              {selectedAuthors.map((a) => (
+                <span
+                  key={a}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-100/70 px-3 py-1.5 text-xs font-bold text-purple-600 shadow-sm dark:border-white/10 dark:bg-slate-800/50 dark:text-purple-400"
+                >
+                  <UserIcon className="h-3 w-3" />
+                  {a}
+                  <button type="button" onClick={() => removeAuthor(a)} className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-slate-200/60 dark:hover:bg-slate-700/60">
+                    <XIcon className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              {selectedTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-100/70 px-3 py-1.5 text-xs font-bold text-indigo-600 shadow-sm dark:border-white/10 dark:bg-slate-800/50 dark:text-indigo-400"
+                >
+                  {tag}
+                  <button type="button" onClick={() => removeTag(tag)} className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-slate-200/60 dark:hover:bg-slate-700/60">
+                    <XIcon className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
           </div>
-        )}
+        </div>
 
         {/* 筛选按钮行（标签 + 作者同一行） */}
         <div className="flex items-center gap-4">
@@ -282,7 +315,7 @@ export default function LibrarySearchPage() {
           <div className="overflow-hidden">
             <div className="mt-3 rounded-2xl border border-white/40 bg-white/30 p-4 backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/30">
               {/* Tag 面板内容 */}
-              {activePanel === 'tag' && (
+              {displayedPanel === 'tag' && (
                 <>
                   <div className="relative mb-3">
                     <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -319,7 +352,7 @@ export default function LibrarySearchPage() {
                 </>
               )}
               {/* Author 面板内容 */}
-              {activePanel === 'author' && (
+              {displayedPanel === 'author' && (
                 <>
                   <div className="relative mb-3">
                     <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -333,12 +366,12 @@ export default function LibrarySearchPage() {
                   </div>
                   <div className="flex max-h-52 flex-wrap gap-2 overflow-y-auto pr-1">
                     {authorItems.map((item: AuthorItem) => {
-                      const active = selectedAuthor === item.author
+                      const active = selectedAuthors.includes(item.author)
                       return (
                         <button
                           key={item.author}
                           type="button"
-                          onClick={() => selectAuthor(item.author)}
+                          onClick={() => toggleAuthor(item.author)}
                           className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-95 ${
                             active
                               ? 'border-purple-400/60 bg-slate-100/80 text-purple-600 shadow-md ring-1 ring-purple-400/40 dark:bg-slate-700/60 dark:text-purple-400'
@@ -409,7 +442,7 @@ export default function LibrarySearchPage() {
                   if (!selectedTags.includes(tag)) toggleTag(tag)
                 }}
                 onAuthorClick={(author) => {
-                  if (author) selectAuthor(author)
+                  if (author) toggleAuthor(author)
                 }}
               />
             ))}
