@@ -19,6 +19,7 @@ class Album(models.Model):
     # 状态
     total_episodes = models.IntegerField(default=0, verbose_name="总章节数")
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     # 封面 (由于API不直接提供图片URL，我们可能需要下载第一张图或手动处理，这里先预留字段)
     cover_path = models.CharField(max_length=512, blank=True, null=True)

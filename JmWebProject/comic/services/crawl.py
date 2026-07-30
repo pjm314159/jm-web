@@ -1,7 +1,7 @@
 """爬取编排服务（无 Celery，直接对接 Rust 下载微服务）。
 
 流程：
-1. jmcomic 获取元数据（1-3s 网络请求）
+1. jmcomic 获取元数据（批量复用单客户端连接）
 2. 保存 Album/Photo 到 DB
 3. 构建图片 URL 列表 → 提交 Rust 服务
 4. 状态查询代理 Rust /api/v1/download/{task_id}/status
@@ -27,9 +27,22 @@ logger = logging.getLogger(__name__)
 _CRAWL_KEY = "jmw-crawl-{crawl_id}"
 _CRAWL_TTL = 3600 * 24  # 24h 过期
 
+# ------------------------------------------------------------------
+# httpx 连接池（模块级单例，复用 TCP 连接）
+# ------------------------------------------------------------------
+_rust_client: httpx.Client | None = None
 
-def _rust_url() -> str:
-    return settings.RUST_DOWNLOADER_URL
+
+def _get_rust_client() -> httpx.Client:
+    """懒初始化 httpx 客户端（连接池），避免每次调用新建连接。"""
+    global _rust_client
+    if _rust_client is None or _rust_client.is_closed:
+        _rust_client = httpx.Client(
+            base_url=settings.RUST_DOWNLOADER_URL,
+            timeout=15,
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        )
+    return _rust_client
 
 
 # ------------------------------------------------------------------
@@ -69,7 +82,7 @@ def _get_or_create_photo(album_obj: Album, p_id, p_index, p_name) -> Photo:
 
 
 # ------------------------------------------------------------------
-# Rust 服务交互
+# Rust 服务交互（复用 httpx 连接池）
 # ------------------------------------------------------------------
 def _submit_to_rust(task_id: str, save_dir: str, scramble_id: str, aid: str, images: list) -> bool:
     """提交下载任务到 Rust 服务，返回是否成功。"""
@@ -82,11 +95,10 @@ def _submit_to_rust(task_id: str, save_dir: str, scramble_id: str, aid: str, ima
         "images": images,
     }
     try:
-        with httpx.Client(timeout=15) as client:
-            resp = client.post(f"{_rust_url()}/api/v1/download", json=payload)
-            if resp.status_code in (200, 202):
-                return True
-            logger.error("Rust 提交失败 [%s]: %s %s", task_id, resp.status_code, resp.text)
+        resp = _get_rust_client().post("/api/v1/download", json=payload)
+        if resp.status_code in (200, 202):
+            return True
+        logger.error("Rust 提交失败 [%s]: %s %s", task_id, resp.status_code, resp.text)
     except Exception as e:
         logger.error("Rust 服务不可达: %s", e)
     return False
@@ -95,10 +107,9 @@ def _submit_to_rust(task_id: str, save_dir: str, scramble_id: str, aid: str, ima
 def _query_rust_status(task_id: str) -> dict | None:
     """查询 Rust 任务状态。"""
     try:
-        with httpx.Client(timeout=10) as client:
-            resp = client.get(f"{_rust_url()}/api/v1/download/{task_id}/status")
-            if resp.status_code == 200:
-                return resp.json()
+        resp = _get_rust_client().get(f"/api/v1/download/{task_id}/status")
+        if resp.status_code == 200:
+            return resp.json()
     except Exception as e:
         logger.warning("查询 Rust 状态失败 [%s]: %s", task_id, e)
     return None
@@ -117,43 +128,61 @@ def submit_crawl(jm_type: str, jm_id: str) -> dict:
 
 
 def _submit_album(crawl_id: str, jm_id: str) -> dict:
-    """整本下载：获取元数据 → 逐章提交 Rust。"""
+    """整本下载：批量获取元数据（单客户端连接复用）→ 逐章提交 Rust。"""
+    # 第一次请求获取本子详情（拿 episode_list）
     album_detail = jm_sync.fetch_album_detail(jm_id)
-    album_obj = _save_album(album_detail, jm_id)
-
     episodes = list(getattr(album_detail, "episode_list", []))
     if not episodes:
+        album_obj = _save_album(album_detail, jm_id)
+        _save_crawl_info(crawl_id, jm_id, "album", [], len(episodes))
         return {"crawl_id": crawl_id, "chapters": 0, "message": "该本子无章节"}
 
-    safe_album = sanitize_filename(album_obj.name)
-    task_ids = []
-    submitted = 0
-
+    # 筛选需要获取详情的章节（未下载的）
+    album_obj = _save_album(album_detail, jm_id)
+    pending_pids = []
+    ep_map = {}  # p_id -> (p_index, p_name)
     for ep in episodes:
         p_id, p_index, p_name = ep[0], ep[1], ep[2]
         if not p_name:
             p_name = p_index
+        ep_map[p_id] = (p_index, p_name)
         photo_obj = _get_or_create_photo(album_obj, p_id, p_index, p_name)
+        if not photo_obj.is_downloaded:
+            pending_pids.append(p_id)
 
-        if photo_obj.is_downloaded:
-            submitted += 1
-            continue
+    # 批量获取章节详情（复用同一客户端连接）
+    if pending_pids:
+        _, photo_details = jm_sync.fetch_album_with_photos(jm_id, pending_pids)
+    else:
+        photo_details = {}
 
-        # 获取章节图片列表
-        try:
-            photo_detail = jm_sync.fetch_photo_detail(p_id, False)
-        except Exception as e:
-            logger.warning("获取章节详情失败 %s: %s", p_id, e)
+    safe_album = sanitize_filename(album_obj.name)
+    task_ids = []
+    submitted = len(episodes) - len(pending_pids)  # 已下载的计入 submitted
+    cover_url = jm_sync.get_album_cover_url(jm_id)
+    cover_added = False  # 封面只加入首章任务
+
+    for p_id in pending_pids:
+        photo_detail = photo_details.get(p_id)
+        if photo_detail is None:
+            logger.warning("获取章节详情失败 %s", p_id)
             continue
 
         images = [{"url": img.download_url, "filename": img.filename} for img in photo_detail]
         if not images:
             continue
 
+        # 首章任务附带封面下载（无需反混淆）
+        if not cover_added:
+            images.append({"url": cover_url, "filename": "cover.png", "no_descramble": True})
+            cover_added = True
+
+        p_index, p_name = ep_map[p_id]
+        photo_obj = _get_or_create_photo(album_obj, p_id, p_index, p_name)
         safe_photo = sanitize_filename(photo_obj.name) or str(p_index)
         save_dir = os.path.join(settings.MEDIA_ROOT, "images", "jmcomic", safe_album, safe_photo)
         scramble_id = str(getattr(photo_detail, "scramble_id", "220980"))
-        aid = str(getattr(photo_detail, "album_id", jm_id))
+        aid = str(p_id)  # 反混淆用 photo_id，非 album_id
         task_id = f"{crawl_id}-{p_id}"
 
         if _submit_to_rust(task_id, save_dir, scramble_id, aid, images):
@@ -188,11 +217,15 @@ def _submit_photo(crawl_id: str, jm_id: str) -> dict:
     )[0]
 
     images = [{"url": img.download_url, "filename": img.filename} for img in photo_detail]
+    # 附带封面下载（无需反混淆）
+    if not album_obj.cover_path:
+        cover_url = jm_sync.get_album_cover_url(target_album_id)
+        images.append({"url": cover_url, "filename": "cover.png", "no_descramble": True})
     safe_album = sanitize_filename(album_obj.name)
     safe_photo = sanitize_filename(photo_obj.name) or jm_id
     save_dir = os.path.join(settings.MEDIA_ROOT, "images", "jmcomic", safe_album, safe_photo)
     scramble_id = str(getattr(photo_detail, "scramble_id", "220980"))
-    aid = str(getattr(photo_detail, "album_id", target_album_id))
+    aid = str(jm_id)  # 反混淆用 photo_id，非 album_id
     task_id = f"{crawl_id}-{jm_id}"
 
     ok = _submit_to_rust(task_id, save_dir, scramble_id, aid, images)
@@ -286,7 +319,7 @@ def _mark_downloaded(task_id: str, info: dict):
             photo.is_downloaded = True
             photo.save_path = os.path.join("images", "jmcomic", safe_album, safe_photo)
             photo.save()
-            # 首章设封面
+            # 首章设封面（Rust 已随章节任务下载 cover.png）
             if not photo.album.cover_path:
                 photo.album.cover_path = os.path.join(photo.save_path, "cover.png")
                 photo.album.save()

@@ -7,29 +7,28 @@ export interface CrawlSubmitResponse {
   task_id: string
 }
 
-/** Celery 任务进度（PROGRESS 状态下的 meta）。 */
+/** 爬取进度（Rust 下载服务状态聚合）。 */
 export interface CrawlProgress {
-  current: number
-  total: number
-  photo_id: string
+  chapters_done: number
+  chapters_total: number
+  images_done: number
+  images_total: number
 }
 
-/** Celery 任务状态枚举（其余状态以 string 兜底）。 */
+/** 任务状态枚举。 */
 export type CrawlState =
-  | 'PENDING'
-  | 'STARTED'
-  | 'RETRY'
+  | 'DOWNLOADING'
   | 'PROGRESS'
   | 'SUCCESS'
-  | 'FAILURE'
-  | 'REVOKED'
+  | 'PARTIAL'
+  | 'FAILED'
+  | 'UNKNOWN'
 
 /** C2 任务状态响应。 */
 export interface CrawlTaskStatus {
-  task_id: string
+  crawl_id: string
   state: CrawlState | string
   progress?: CrawlProgress
-  result?: string
   error?: string
 }
 

@@ -106,7 +106,19 @@ class TestVideoStream:
         _make_video_folder(media_root)
         assert api_client.get(reverse("video_stream", args=["视频夹", "a.mp4"])).status_code == 401
 
-    def test_full_download(self, auth_client, media_root):
+    def test_nginx_x_accel_redirect(self, auth_client, media_root, settings):
+        """生产模式（DEBUG=False）返回 X-Accel-Redirect 头，由 Nginx 直出。"""
+        settings.DEBUG = False
+        _make_video_folder(media_root)
+        resp = auth_client.get(reverse("video_stream", args=["视频夹", "a.mp4"]))
+        assert resp.status_code == 200
+        # 中文路径经 URL 编码（percent-encoded），Nginx 自动解码
+        assert resp["X-Accel-Redirect"] == "/internal_videos/%E8%A7%86%E9%A2%91%E5%A4%B9/a.mp4"
+        assert resp["Accept-Ranges"] == "bytes"
+
+    def test_full_download(self, auth_client, media_root, settings):
+        """开发模式（DEBUG=True）回退 Django FileResponse。"""
+        settings.DEBUG = True
         _make_video_folder(media_root)
         resp = auth_client.get(reverse("video_stream", args=["视频夹", "a.mp4"]))
         assert resp.status_code == 200
@@ -114,7 +126,8 @@ class TestVideoStream:
         assert resp["Content-Type"] == "video/mp4"
         assert resp["Accept-Ranges"] == "bytes"
 
-    def test_range_206(self, auth_client, media_root):
+    def test_range_206(self, auth_client, media_root, settings):
+        settings.DEBUG = True
         _make_video_folder(media_root)
         resp = auth_client.get(
             reverse("video_stream", args=["视频夹", "a.mp4"]), HTTP_RANGE="bytes=2-5"
@@ -123,7 +136,8 @@ class TestVideoStream:
         assert resp["Content-Range"] == "bytes 2-5/10"
         assert b"".join(resp.streaming_content) == b"2345"
 
-    def test_range_open_end(self, auth_client, media_root):
+    def test_range_open_end(self, auth_client, media_root, settings):
+        settings.DEBUG = True
         _make_video_folder(media_root)
         resp = auth_client.get(
             reverse("video_stream", args=["视频夹", "a.mp4"]), HTTP_RANGE="bytes=8-"
@@ -131,7 +145,8 @@ class TestVideoStream:
         assert resp.status_code == 206
         assert b"".join(resp.streaming_content) == b"89"
 
-    def test_range_out_of_bounds_416(self, auth_client, media_root):
+    def test_range_out_of_bounds_416(self, auth_client, media_root, settings):
+        settings.DEBUG = True
         _make_video_folder(media_root)
         resp = auth_client.get(
             reverse("video_stream", args=["视频夹", "a.mp4"]), HTTP_RANGE="bytes=20-30"

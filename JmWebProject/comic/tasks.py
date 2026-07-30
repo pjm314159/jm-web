@@ -140,12 +140,9 @@ async def _download_photo(client, photo_obj: Photo, album_name: str) -> bool:
             return False
 
         # 构建 Rust 服务请求体
-        images = [
-            {"url": img.download_url, "filename": img.filename}
-            for img in photo_detail
-        ]
+        images = [{"url": img.download_url, "filename": img.filename} for img in photo_detail]
         scramble_id = str(getattr(photo_detail, "scramble_id", "220980"))
-        aid = str(getattr(photo_detail, "album_id", photo_obj.jm_id))
+        aid = str(photo_obj.jm_id)  # 反混淆用 photo_id，非 album_id
         task_id = f"{photo_obj.jm_id}-{uuid.uuid4().hex[:8]}"
 
         payload = {
@@ -176,7 +173,9 @@ async def _download_photo(client, photo_obj: Photo, album_name: str) -> bool:
                 data = sr.json()
                 status = data.get("status", "")
                 if status == "completed":
-                    logger.info("Rust 下载完成 [%s]: %s/%s", task_id, data.get("done"), data.get("total"))
+                    logger.info(
+                        "Rust 下载完成 [%s]: %s/%s", task_id, data.get("done"), data.get("total")
+                    )
                     break
                 if status == "failed":
                     logger.error("Rust 下载失败 [%s]: %s", task_id, data.get("failed"))

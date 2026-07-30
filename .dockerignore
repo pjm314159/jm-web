@@ -11,6 +11,7 @@ frontend/node_modules
 frontend/dist
 frontend/wasm/target
 frontend/wasm/pkg
+rust-downloader/target
 JmWebProject/media/images/jmcomic/*
 !JmWebProject/media/images/jmcomic/.gitkeep
 JmWebProject/media/images/local/*

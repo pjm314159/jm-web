@@ -5,11 +5,11 @@
  * - 功能：添加下载任务、章节分页
  * 路由：/search/album/:jmId
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { submitCrawl } from '../api/crawl'
+import { getCrawlTaskStatus, submitCrawl } from '../api/crawl'
 import { getSearchAlbumDetail } from '../api/search'
 
 /* ─── 图标 ──────────────────────────────────────────────── */
@@ -108,20 +108,53 @@ export default function SearchDetailPage() {
   const { jmId } = useParams<{ jmId: string }>()
   const navigate = useNavigate()
   const [epPage, setEpPage] = useState(1)
-  const [dlState, setDlState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const queryClient = useQueryClient()
+  const [dlState, setDlState] = useState<'idle' | 'loading' | 'downloading' | 'success' | 'error'>('idle')
   const [dlMsg, setDlMsg] = useState('')
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // 清理轮询
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
+
+  const startPolling = (taskId: string) => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const st = await getCrawlTaskStatus(taskId)
+        if (st.state === 'SUCCESS' || st.state === 'PARTIAL') {
+          if (pollRef.current) clearInterval(pollRef.current)
+          setDlState('success')
+          setDlMsg(st.state === 'SUCCESS' ? '下载完成' : '部分章节下载失败')
+          queryClient.invalidateQueries({ queryKey: ['search-detail', jmId] })
+        } else if (st.state === 'FAILED') {
+          if (pollRef.current) clearInterval(pollRef.current)
+          setDlState('error')
+          setDlMsg('下载失败')
+        } else if (st.progress) {
+          setDlState('downloading')
+          setDlMsg(`下载中 ${st.progress.images_done}/${st.progress.images_total} 张`)
+        }
+      } catch {
+        // 轮询失败静默忽略
+      }
+    }, 2000)
+  }
 
   const handleDownload = async () => {
-    if (!jmId || dlState === 'loading') return
+    if (!jmId || dlState === 'loading' || dlState === 'downloading') return
     setDlState('loading')
     setDlMsg('')
     try {
       const res = await submitCrawl(jmId)
-      setDlState('success')
-      setDlMsg(res.message || '任务已提交')
-    } catch {
+      setDlState('downloading')
+      setDlMsg(res.message || '任务已提交，正在下载…')
+      startPolling(res.task_id)
+    } catch (err) {
       setDlState('error')
-      setDlMsg('提交失败，请稍后重试')
+      const msg =
+        (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
+        '提交失败，请稍后重试'
+      setDlMsg(msg)
     }
   }
 
@@ -199,7 +232,7 @@ export default function SearchDetailPage() {
           <button
             type="button"
             onClick={handleDownload}
-            disabled={dlState === 'loading'}
+            disabled={dlState === 'loading' || dlState === 'downloading'}
             className={`flex items-center justify-center gap-2 rounded-2xl border px-6 py-3.5 text-sm font-bold shadow-lg backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:shadow-xl active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 ${
               is_downloaded
                 ? 'border-emerald-200/50 bg-emerald-50/50 text-emerald-600 hover:border-emerald-300/60 dark:border-emerald-500/20 dark:bg-emerald-950/30 dark:text-emerald-400'
@@ -207,7 +240,7 @@ export default function SearchDetailPage() {
             }`}
           >
             <DownloadIcon className="h-5 w-5" />
-            {dlState === 'loading' ? '提交中…' : is_downloaded ? '已下载（可更新）' : '添加下载任务'}
+            {dlState === 'loading' ? '提交中…' : dlState === 'downloading' ? '下载中…' : is_downloaded ? '已下载' : '添加下载任务'}
           </button>
           {/* 提交反馈 */}
           {dlMsg && (

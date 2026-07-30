@@ -70,10 +70,26 @@ fn is_media_file(path: &Path, exts: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
-/// 扫描本地媒体目录，写入 Redis。
+/// 扫描本地媒体目录，写入 Redis（复用单连接）。
 pub async fn scan_local_media(media_root: &str, redis_url: &str) {
     let base = Path::new(media_root);
     let media_url = "/media/";
+
+    // 建立单一 Redis 连接，全程复用
+    let redis_client = match redis::Client::open(redis_url) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Redis 客户端创建失败: {e}");
+            return;
+        }
+    };
+    let mut con = match redis_client.get_multiplexed_async_connection().await {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Redis 连接失败: {e}");
+            return;
+        }
+    };
 
     let mut image_albums: Vec<FolderInfo> = Vec::new();
     let mut video_folders: Vec<FolderInfo> = Vec::new();
@@ -124,7 +140,7 @@ pub async fn scan_local_media(media_root: &str, redis_url: &str) {
                     folder_name: folder_name.clone(),
                 });
 
-                // 写入单文件夹缓存
+                // 写入单文件夹缓存（复用连接）
                 let files_list: Vec<FileEntry> = files
                     .iter()
                     .map(|f| FileEntry {
@@ -137,14 +153,10 @@ pub async fn scan_local_media(media_root: &str, redis_url: &str) {
                     })
                     .collect();
 
-                if let Ok(client) = redis::Client::open(redis_url) {
-                    if let Ok(mut con) = client.get_multiplexed_async_connection().await {
-                        let key = format!("jmw-local-images-{folder_name}");
-                        let _: Result<(), _> = con
-                            .set(&key, serde_json::to_string(&files_list).unwrap_or_default())
-                            .await;
-                    }
-                }
+                let key = format!("jmw-local-images-{folder_name}");
+                let _: Result<(), _> = con
+                    .set(&key, serde_json::to_string(&files_list).unwrap_or_default())
+                    .await;
             }
         }
     }
@@ -216,38 +228,25 @@ pub async fn scan_local_media(media_root: &str, redis_url: &str) {
                     })
                     .collect();
 
-                if let Ok(client) = redis::Client::open(redis_url) {
-                    if let Ok(mut con) = client.get_multiplexed_async_connection().await {
-                        let key = format!("jmw-local-videos-{folder_name}");
-                        let _: Result<(), _> = con
-                            .set(&key, serde_json::to_string(&files_list).unwrap_or_default())
-                            .await;
-                    }
-                }
+                let key = format!("jmw-local-videos-{folder_name}");
+                let _: Result<(), _> = con
+                    .set(&key, serde_json::to_string(&files_list).unwrap_or_default())
+                    .await;
             }
         }
     }
 
-    // 写入总缓存
+    // 写入总缓存（复用连接）
     let context = MediaFolders {
         image_albums,
         video_folders,
     };
 
-    match redis::Client::open(redis_url) {
-        Ok(client) => match client.get_multiplexed_async_connection().await {
-            Ok(mut con) => {
-                let json = serde_json::to_string(&context).unwrap_or_default();
-                let result: Result<(), redis::RedisError> =
-                    con.set("jmw-local-media-folders", json).await;
-                match result {
-                    Ok(_) => info!("本地媒体扫描完成并写入 Redis"),
-                    Err(e) => warn!("Redis SET 失败: {e}"),
-                }
-            }
-            Err(e) => warn!("Redis 连接失败: {e}"),
-        },
-        Err(e) => warn!("Redis 客户端创建失败: {e}"),
+    let json = serde_json::to_string(&context).unwrap_or_default();
+    let result: Result<(), redis::RedisError> = con.set("jmw-local-media-folders", json).await;
+    match result {
+        Ok(_) => info!("本地媒体扫描完成并写入 Redis"),
+        Err(e) => warn!("Redis SET 失败: {e}"),
     }
 }
 

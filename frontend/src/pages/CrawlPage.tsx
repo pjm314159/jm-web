@@ -103,14 +103,14 @@ export default function CrawlPage() {
     },
   })
 
-  // 提交后轮询任务状态，到达终态（SUCCESS/FAILURE）后停止
+  // 提交后轮询任务状态，到达终态后停止
   const { data: taskStatus } = useQuery({
     queryKey: ['crawl-task', taskId],
     queryFn: () => getCrawlTaskStatus(taskId!),
     enabled: !!taskId,
     refetchInterval: (query) => {
       const state = query.state.data?.state
-      return state === 'SUCCESS' || state === 'FAILURE' ? false : 1500
+      return state === 'SUCCESS' || state === 'PARTIAL' || state === 'FAILED' ? false : 1500
     },
   })
 
@@ -123,10 +123,10 @@ export default function CrawlPage() {
   }
 
   const state = taskStatus?.state
-  const isPending = !!taskId && (!state || state === 'PENDING' || state === 'STARTED' || state === 'RETRY')
+  const isPending = !!taskId && (!state || state === 'DOWNLOADING')
   const isProgress = state === 'PROGRESS'
-  const isSuccess = state === 'SUCCESS'
-  const isFailure = state === 'FAILURE'
+  const isSuccess = state === 'SUCCESS' || state === 'PARTIAL'
+  const isFailure = state === 'FAILED'
   const showStatus = !!submitError || !!taskId
 
   return (
@@ -191,16 +191,16 @@ export default function CrawlPage() {
 
             {!submitError && isProgress && taskStatus?.progress && (
               <ProgressBar
-                current={taskStatus.progress.current}
-                total={taskStatus.progress.total}
+                current={taskStatus.progress.chapters_done}
+                total={taskStatus.progress.chapters_total}
               />
             )}
 
             {!submitError && isSuccess && (
               <StatusBox
                 tone="success"
-                title="任务已完成"
-                detail={taskStatus?.result ?? '可前往藏书阁查看下载结果。'}
+                title={state === 'PARTIAL' ? '部分章节下载失败' : '任务已完成'}
+                detail="可前往藏书阁查看下载结果。"
               />
             )}
 

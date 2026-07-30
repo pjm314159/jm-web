@@ -7,7 +7,9 @@
 import logging
 import os
 import re
+from urllib.parse import quote
 
+from django.conf import settings
 from django.http import FileResponse, HttpResponse, StreamingHttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -42,7 +44,7 @@ class AlbumViewSet(
         # L1 列表仅展示含已下载章节的本子；detail/destroy/check-updates 可操作任何存在的本子
         if self.action == "list":
             return library.get_library_albums()
-        return Album.objects.all().order_by("-created_at")
+        return Album.objects.all().order_by("-updated_at")
 
     def get_serializer_class(self):
         if self.action == "retrieve":
@@ -89,7 +91,9 @@ class CrawlSubmitView(APIView):
         serializer = CrawlSubmitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        jm_type, jm_id = parse_jm_input(serializer.validated_data["input"])
+        raw_input = serializer.validated_data["input"]
+        jm_type, jm_id = parse_jm_input(raw_input)
+        logger.info("爬取提交: input=%r -> type=%s, id=%s", raw_input, jm_type, jm_id)
         if not jm_id:
             return Response({"error": "无效链接或ID"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -167,17 +171,29 @@ _VIDEO_CONTENT_TYPES = {
 
 
 class VideoStreamView(APIView):
-    """M5：视频 Range 流式播放（保留旧实现，支持 206/Content-Range）。"""
+    """M5：视频播放——生产环境走 Nginx X-Accel-Redirect 直出，开发环境回退 FileResponse。"""
 
     def get(self, request, folder_name, file_name):
         path = local_media.resolve_video_path(folder_name, file_name)
         if path is None:
             return Response({"error": "视频文件不存在"}, status=status.HTTP_404_NOT_FOUND)
 
-        file_path = str(path)
-        file_size = os.path.getsize(file_path)
         ext = os.path.splitext(file_name)[1].lower()
         content_type = _VIDEO_CONTENT_TYPES.get(ext, "application/octet-stream")
+
+        # 生产环境（Nginx 反代）：X-Accel-Redirect 让 Nginx 直接 serve 文件
+        if not settings.DEBUG:
+            response = HttpResponse(content_type=content_type)
+            # Nginx internal location 映射: /internal_videos/ -> /app/JmWebProject/media/videos/
+            # URL 编码处理中文等非 ASCII 字符，Nginx 会自动解码 percent-encoded URI
+            accel_path = quote(f"/internal_videos/{folder_name}/{file_name}")
+            response["X-Accel-Redirect"] = accel_path
+            response["Accept-Ranges"] = "bytes"
+            return response
+
+        # 开发环境回退：Django 直接读文件
+        file_path = str(path)
+        file_size = os.path.getsize(file_path)
 
         range_header = request.headers.get("range")
         if not range_header:

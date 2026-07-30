@@ -36,11 +36,11 @@ services:
     image: pjm314159/jm-rust-downloader:latest
     container_name: jm_rust_downloader
     volumes:
-      - ./JmWebProject/media:/app/media
+      - ./JmWebProject/media:/app/JmWebProject/media
     environment:
       - LISTEN_ADDR=0.0.0.0:3080
       - REDIS_URL=redis://redis:6379/0
-      - MEDIA_ROOT=/app/media
+      - MEDIA_ROOT=/app/JmWebProject/media
       - MAX_CONCURRENCY=50
       - RETRY_TIMES=5
       - JITTER_CAP_MS=2000

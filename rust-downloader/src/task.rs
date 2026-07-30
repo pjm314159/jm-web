@@ -32,6 +32,8 @@ fn default_concurrency() -> usize {
 pub struct ImageEntryRaw {
     pub url: String,
     pub filename: String,
+    #[serde(default)]
+    pub no_descramble: bool,
 }
 
 /// 任务状态
@@ -125,6 +127,7 @@ pub async fn execute_download(state: Arc<AppState>, req: DownloadRequest) {
         .map(|i| ImageEntry {
             url: i.url,
             filename: i.filename,
+            no_descramble: i.no_descramble,
         })
         .collect();
 

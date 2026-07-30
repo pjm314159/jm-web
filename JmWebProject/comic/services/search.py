@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 IMAGES_PER_PAGE = 300
 SEARCH_CACHE_TTL = 120
+DETAIL_CACHE_TTL = 120  # 在线详情/章节列表缓存 120s
 
 
 def _episode_to_dict(ep) -> dict:
@@ -105,7 +106,12 @@ def search(query: str, search_type: str = "keyword", page: int = 1) -> dict:
 
 
 def get_album_detail(jm_id: str) -> dict:
-    """S2：在线本子详情 + 更新检测（likes/views/comments + 章节列表）。"""
+    """S2：在线本子详情 + 更新检测（likes/views/comments + 章节列表），缓存 120s。"""
+    cache_key = f"jmw-album-detail-{jm_id}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
     album_detail = jm_sync.fetch_album_detail(jm_id)
 
     local_album = Album.objects.filter(jm_id=jm_id).first()
@@ -114,7 +120,7 @@ def get_album_detail(jm_id: str) -> dict:
     new_episode_count = 0
     has_updates = False
     if is_downloaded:
-        remote_ids = {ep[0] for ep in album_detail.episode_list if ep[0]}
+        remote_ids = {str(ep[0]) for ep in album_detail.episode_list if ep[0]}
         local_cached_ids = set(cache.get(f"jmw-album-episodes-{jm_id}", []) or [])
         if local_cached_ids:
             new_episode_count = len(remote_ids - local_cached_ids)
@@ -129,7 +135,7 @@ def get_album_detail(jm_id: str) -> dict:
     elif hasattr(album_detail, "author"):
         author = album_detail.author
 
-    return {
+    result = {
         "album": {
             "jm_id": jm_id,
             "name": album_detail.name,
@@ -147,16 +153,25 @@ def get_album_detail(jm_id: str) -> dict:
         "has_updates": has_updates,
         "new_episode_count": new_episode_count,
     }
+    cache.set(cache_key, result, timeout=DETAIL_CACHE_TTL)
+    return result
 
 
 def get_episode_list(jm_id: str) -> dict:
-    """S3：在线章节列表。"""
+    """S3：在线章节列表，缓存 120s。"""
+    cache_key = f"jmw-episode-list-{jm_id}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
     album_detail = jm_sync.fetch_album_detail(jm_id)
-    return {
+    result = {
         "jm_id": jm_id,
         "name": album_detail.name,
         "episode_list": [_episode_to_dict(ep) for ep in album_detail.episode_list],
     }
+    cache.set(cache_key, result, timeout=DETAIL_CACHE_TTL)
+    return result
 
 
 def get_photo_images(photo_id: str, page: int = 1, target=None) -> dict:

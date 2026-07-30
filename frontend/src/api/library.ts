@@ -68,7 +68,7 @@ export interface CheckUpdateResult {
 
 /** L4：对比远端章节，返回新章节差集。 */
 export async function checkAlbumUpdates(id: number): Promise<CheckUpdateResult> {
-  const { data } = await apiClient.post<CheckUpdateResult>(`/library/albums/${id}/check_updates/`)
+  const { data } = await apiClient.post<CheckUpdateResult>(`/library/albums/${id}/check-updates/`)
   return data
 }
 

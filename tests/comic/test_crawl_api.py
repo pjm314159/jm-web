@@ -1,4 +1,7 @@
-"""Crawl API 测试（C1-C2）：提交爬取 + 任务状态查询。"""
+"""Crawl API 测试（C1-C2）：提交爬取 + 任务状态查询。
+
+业务层 crawl_service 全部 mock，不触达真实 Rust 服务或 jmcomic。
+"""
 
 from unittest.mock import patch
 
@@ -13,29 +16,34 @@ class TestCrawlSubmit:
         assert api_client.post(reverse("crawl_submit"), {}, format="json").status_code == 401
 
     def test_submit_album_id(self, auth_client):
-        with patch("comic.views.crawl_jm_task") as mock_task:
-            mock_task.delay.return_value.id = "task-123"
+        fake_result = {
+            "crawl_id": "abc123",
+            "chapters": 2,
+            "submitted": 2,
+            "message": "已提交 2/2 章",
+        }
+        with patch("comic.views.crawl_service.submit_crawl", return_value=fake_result) as m:
             resp = auth_client.post(reverse("crawl_submit"), {"input": "12345"}, format="json")
         assert resp.status_code == 202
-        assert resp.data["task_id"] == "task-123"
-        mock_task.delay.assert_called_once_with("album", "12345")
+        assert resp.data["task_id"] == "abc123"
+        m.assert_called_once_with("album", "12345")
 
     def test_submit_photo_link(self, auth_client):
-        with patch("comic.views.crawl_jm_task") as mock_task:
-            mock_task.delay.return_value.id = "t2"
+        fake_result = {"crawl_id": "t2", "chapters": 1, "submitted": 1, "message": "已提交"}
+        with patch("comic.views.crawl_service.submit_crawl", return_value=fake_result) as m:
             resp = auth_client.post(
                 reverse("crawl_submit"), {"input": "https://x/photo/999"}, format="json"
             )
         assert resp.status_code == 202
-        mock_task.delay.assert_called_once_with("photo", "999")
+        m.assert_called_once_with("photo", "999")
 
     def test_submit_album_link(self, auth_client):
-        with patch("comic.views.crawl_jm_task") as mock_task:
-            mock_task.delay.return_value.id = "t3"
+        fake_result = {"crawl_id": "t3", "chapters": 1, "submitted": 1, "message": "已提交"}
+        with patch("comic.views.crawl_service.submit_crawl", return_value=fake_result) as m:
             auth_client.post(
                 reverse("crawl_submit"), {"input": "https://x/album/888"}, format="json"
             )
-        mock_task.delay.assert_called_once_with("album", "888")
+        m.assert_called_once_with("album", "888")
 
     def test_submit_invalid_input(self, auth_client):
         resp = auth_client.post(reverse("crawl_submit"), {"input": "invalid"}, format="json")
@@ -45,34 +53,53 @@ class TestCrawlSubmit:
         resp = auth_client.post(reverse("crawl_submit"), {"input": ""}, format="json")
         assert resp.status_code == 400
 
+    def test_submit_rust_unreachable(self, auth_client):
+        with patch(
+            "comic.views.crawl_service.submit_crawl", side_effect=ConnectionError("refused")
+        ):
+            resp = auth_client.post(reverse("crawl_submit"), {"input": "12345"}, format="json")
+        assert resp.status_code == 502
+
 
 class TestCrawlTaskStatus:
     def test_requires_auth(self, api_client):
         assert api_client.get(reverse("crawl_task_status", args=["t"])).status_code == 401
 
     def test_progress_state(self, auth_client):
-        fake = type("R", (), {"state": "PROGRESS", "info": {"current": 1, "total": 10}})()
-        with patch("comic.views.AsyncResult", return_value=fake):
+        fake = {
+            "crawl_id": "t1",
+            "state": "PROGRESS",
+            "progress": {
+                "chapters_done": 1,
+                "chapters_total": 3,
+                "images_done": 20,
+                "images_total": 60,
+            },
+        }
+        with patch("comic.views.crawl_service.get_crawl_status", return_value=fake):
             resp = auth_client.get(reverse("crawl_task_status", args=["t1"]))
         assert resp.status_code == 200
         assert resp.data["state"] == "PROGRESS"
-        assert resp.data["progress"]["current"] == 1
+        assert resp.data["progress"]["chapters_done"] == 1
 
     def test_success_state(self, auth_client):
-        fake = type("R", (), {"state": "SUCCESS", "result": "done"})()
-        with patch("comic.views.AsyncResult", return_value=fake):
+        fake = {
+            "crawl_id": "t1",
+            "state": "SUCCESS",
+            "progress": {
+                "chapters_done": 3,
+                "chapters_total": 3,
+                "images_done": 60,
+                "images_total": 60,
+            },
+        }
+        with patch("comic.views.crawl_service.get_crawl_status", return_value=fake):
             resp = auth_client.get(reverse("crawl_task_status", args=["t1"]))
-        assert resp.data["result"] == "done"
+        assert resp.data["state"] == "SUCCESS"
 
-    def test_failure_state(self, auth_client):
-        fake = type("R", (), {"state": "FAILURE", "info": "boom"})()
-        with patch("comic.views.AsyncResult", return_value=fake):
+    def test_unknown_state(self, auth_client):
+        fake = {"crawl_id": "t1", "state": "UNKNOWN", "error": "任务不存在或已过期"}
+        with patch("comic.views.crawl_service.get_crawl_status", return_value=fake):
             resp = auth_client.get(reverse("crawl_task_status", args=["t1"]))
-        assert resp.data["error"] == "boom"
-
-    def test_pending_state(self, auth_client):
-        fake = type("R", (), {"state": "PENDING"})()
-        with patch("comic.views.AsyncResult", return_value=fake):
-            resp = auth_client.get(reverse("crawl_task_status", args=["t1"]))
-        assert resp.data["state"] == "PENDING"
-        assert "progress" not in resp.data
+        assert resp.data["state"] == "UNKNOWN"
+        assert "error" in resp.data

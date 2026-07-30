@@ -14,6 +14,8 @@ use crate::retry::{fetch_with_retry, RetryConfig};
 pub struct ImageEntry {
     pub url: String,
     pub filename: String,
+    /// 为 true 时跳过反混淆，直接保存原图（如封面）
+    pub no_descramble: bool,
 }
 
 /// 章节下载结果
@@ -123,7 +125,19 @@ async fn download_one(
         .await
         .map_err(|e| e.to_string())?;
 
-    let num = calc_scramble_num(scramble_id, aid, &img.filename);
+    // 封面等无需反混淆的图片直接保存
+    if img.no_descramble {
+        std::fs::write(&path, &bytes).map_err(|e| format!("write: {e}"))?;
+        return Ok(());
+    }
+
+    // MD5 计算用不含后缀的文件名（与 jmcomic JmImageDetail.img_file_name 一致）
+    let stem = img
+        .filename
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(&img.filename);
+    let num = calc_scramble_num(scramble_id, aid, stem);
 
     // 解码失败重试 1 次
     if let Err(e) = descramble_and_save(&bytes, num, &path) {
@@ -188,4 +202,52 @@ pub async fn download_chapter(
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calc_scramble_num_known_value() {
+        // 对应 jmcomic: JmImageTool.get_num(220980, 1319207, '00002') == 16
+        let num = calc_scramble_num(220980, 1319207, "00002");
+        assert_eq!(num, 16, "aid=1319207, filename=00002 应得 num=16");
+    }
+
+    #[test]
+    fn test_calc_scramble_num_below_scramble_id() {
+        assert_eq!(calc_scramble_num(220980, 100000, "00001"), 0);
+    }
+
+    #[test]
+    fn test_calc_scramble_num_below_268850() {
+        assert_eq!(calc_scramble_num(220980, 250000, "00001"), 10);
+    }
+
+    #[test]
+    fn test_descramble_roundtrip() {
+        // 创建一张测试图片，descramble 验证不崩溃
+        let w = 100u32;
+        let h = 160u32;
+        let mut img = image::RgbaImage::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                img.put_pixel(x, y, image::Rgba([y as u8, x as u8, 128, 255]));
+            }
+        }
+        let dir = std::env::temp_dir();
+        let orig_path = dir.join("test_orig.webp");
+        let out_path = dir.join("test_descrambled.webp");
+        img.save(&orig_path).unwrap();
+
+        let data = std::fs::read(&orig_path).unwrap();
+        descramble_and_save(&data, 16, out_path.to_str().unwrap()).unwrap();
+
+        let meta = std::fs::metadata(&out_path).unwrap();
+        assert!(meta.len() > 0);
+
+        let _ = std::fs::remove_file(&orig_path);
+        let _ = std::fs::remove_file(&out_path);
+    }
 }

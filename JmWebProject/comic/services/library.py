@@ -25,7 +25,7 @@ IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 
 def get_library_albums():
     """L1：至少含一个已下载章节的本子，按创建时间倒序（去重）。"""
-    return Album.objects.filter(photos__is_downloaded=True).distinct().order_by("-created_at")
+    return Album.objects.filter(photos__is_downloaded=True).distinct().order_by("-updated_at")
 
 
 def delete_album(album: Album) -> None:
@@ -57,9 +57,10 @@ def check_album_updates(album: Album) -> dict:
     album_detail = jm_sync.fetch_album_detail(album.jm_id)
     remote_episodes = album_detail.episode_list if hasattr(album_detail, "episode_list") else []
 
-    remote_ids = {ep[0] for ep in remote_episodes if ep[0]}
+    # 统一转为字符串比较，避免 int/str 不匹配
+    remote_ids = {str(ep[0]) for ep in remote_episodes if ep[0]}
     new_episode_ids = remote_ids - local_photo_ids
-    new_episodes = [ep for ep in remote_episodes if ep[0] in new_episode_ids]
+    new_episodes = [ep for ep in remote_episodes if str(ep[0]) in new_episode_ids]
 
     with contextlib.suppress(Exception):
         cache.set(f"jmw-album-episodes-{album.jm_id}", list(remote_ids), timeout=None)
