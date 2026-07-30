@@ -8,7 +8,6 @@ import logging
 import os
 import re
 
-from celery.result import AsyncResult
 from django.http import FileResponse, HttpResponse, StreamingHttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -21,8 +20,8 @@ from .serializers import (
     AlbumSerializer,
     CrawlSubmitSerializer,
 )
+from .services import crawl as crawl_service
 from .services import library, local_media, search
-from .tasks import crawl_jm_task
 from .utils import parse_jm_input
 
 logger = logging.getLogger(__name__)
@@ -84,7 +83,7 @@ class PhotoReaderView(APIView):
 # 爬取（/api/crawl/）C1-C2
 # ====================================================
 class CrawlSubmitView(APIView):
-    """C1：提交爬取，解析输入后派发 Celery 任务，返回 task_id。"""
+    """C1：提交爬取，直接对接 Rust 下载服务。"""
 
     def post(self, request):
         serializer = CrawlSubmitSerializer(data=request.data)
@@ -94,30 +93,24 @@ class CrawlSubmitView(APIView):
         if not jm_id:
             return Response({"error": "无效链接或ID"}, status=status.HTTP_400_BAD_REQUEST)
 
-        task = crawl_jm_task.delay(jm_type, jm_id)
+        try:
+            result = crawl_service.submit_crawl(jm_type, jm_id)
+        except Exception as e:
+            logger.exception("爬取提交失败")
+            return Response({"error": f"提交失败: {e!s}"}, status=status.HTTP_502_BAD_GATEWAY)
+
         return Response(
-            {
-                "status": "success",
-                "message": f"任务已提交: {jm_type} - {jm_id}",
-                "task_id": task.id,
-            },
+            {"status": "success", "task_id": result["crawl_id"], **result},
             status=status.HTTP_202_ACCEPTED,
         )
 
 
 class CrawlTaskStatusView(APIView):
-    """C2：查询 Celery 任务状态（PENDING/PROGRESS/SUCCESS/FAILURE + 进度）。"""
+    """C2：查询爬取进度（代理 Rust 服务状态）。"""
 
     def get(self, request, task_id):
-        result = AsyncResult(task_id)
-        payload = {"task_id": task_id, "state": result.state}
-        if result.state == "PROGRESS":
-            payload["progress"] = result.info
-        elif result.state == "SUCCESS":
-            payload["result"] = result.result
-        elif result.state == "FAILURE":
-            payload["error"] = str(result.info)
-        return Response(payload)
+        result = crawl_service.get_crawl_status(task_id)
+        return Response(result)
 
 
 # ====================================================

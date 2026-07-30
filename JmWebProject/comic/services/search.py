@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 IMAGES_PER_PAGE = 300
 SEARCH_CACHE_TTL = 120
-ALBUM_DETAIL_CACHE_TTL = 300  # B4: 在线详情缓存 5 分钟
 
 
 def _episode_to_dict(ep) -> dict:
@@ -105,19 +104,9 @@ def search(query: str, search_type: str = "keyword", page: int = 1) -> dict:
     return context
 
 
-def _get_album_detail_cached(jm_id: str):
-    """B4: 缓存 album_detail 对象 300s，S2/S3/L4 共享。"""
-    cache_key = f"jmw-album-detail-{jm_id}"
-    detail = cache.get(cache_key)
-    if detail is None:
-        detail = jm_sync.fetch_album_detail(jm_id)
-        cache.set(cache_key, detail, timeout=ALBUM_DETAIL_CACHE_TTL)
-    return detail
-
-
 def get_album_detail(jm_id: str) -> dict:
     """S2：在线本子详情 + 更新检测（likes/views/comments + 章节列表）。"""
-    album_detail = _get_album_detail_cached(jm_id)
+    album_detail = jm_sync.fetch_album_detail(jm_id)
 
     local_album = Album.objects.filter(jm_id=jm_id).first()
     is_downloaded = local_album.photos.filter(is_downloaded=True).exists() if local_album else False
@@ -161,8 +150,8 @@ def get_album_detail(jm_id: str) -> dict:
 
 
 def get_episode_list(jm_id: str) -> dict:
-    """S3：在线章节列表（B4: 复用 album_detail 缓存）。"""
-    album_detail = _get_album_detail_cached(jm_id)
+    """S3：在线章节列表。"""
+    album_detail = jm_sync.fetch_album_detail(jm_id)
     return {
         "jm_id": jm_id,
         "name": album_detail.name,

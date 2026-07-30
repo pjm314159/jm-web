@@ -21,34 +21,44 @@ services:
     environment:
       - DJANGO_DEBUG=false
       - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - RUST_DOWNLOADER_URL=http://rust_downloader:3080
     depends_on:
       - redis
+      - rust_downloader
     restart: unless-stopped
     mem_limit: 512m
 
-  # Celery Worker + Beat（内嵌定时调度）
-  celery_worker:
-    build: .
-    image: pjm314159/jm_celery:latest
-    user: "root"
-    container_name: jm_celery_worker
+  # Rust 下载微服务（替代 Celery Worker + Beat）
+  rust_downloader:
+    build:
+      context: ./rust-downloader
+      dockerfile: Dockerfile
+    image: pjm314159/jm-rust-downloader:latest
+    container_name: jm_rust_downloader
     volumes:
-      - ./JmWebProject/media:/app/JmWebProject/media
-      - db_data:/app/JmWebProject/db
-    command: celery -A JmWebProject worker --loglevel=info --pool=threads -B
-    env_file:
-      - .env
+      - ./JmWebProject/media:/app/media
     environment:
+      - LISTEN_ADDR=0.0.0.0:3080
       - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MEDIA_ROOT=/app/media
+      - MAX_CONCURRENCY=50
+      - RETRY_TIMES=5
+      - JITTER_CAP_MS=2000
+      - TIMEOUT_SECS=30
+      - SCAN_INTERVAL_SECS=60
+      - RUST_LOG=info
     depends_on:
       - redis
-      - web
+    ports:
+      - "3080:3080"
     restart: unless-stopped
-    mem_limit: 1g
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   nginx:
     build:

@@ -50,3 +50,6 @@ frontend/*.local
 # Rust WASM 构建产物
 frontend/wasm/target/
 frontend/wasm/pkg/
+
+# Rust 下载微服务构建产物
+rust-downloader/target/

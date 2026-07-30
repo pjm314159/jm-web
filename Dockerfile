@@ -1,8 +1,8 @@
 # ═══ Python 后端（Django + Celery） ═════════════════
 FROM python:3.12-slim
 
-# 安装 uv（从官方镜像复制二进制）
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# 安装 uv
+RUN pip install --no-cache-dir uv
 
 # 设置工作目录
 WORKDIR /app

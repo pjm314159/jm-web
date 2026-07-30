@@ -27,31 +27,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-# 3. 爬取模块配置 (Celery)
+# 3. Redis / 下载模块配置
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", REDIS_URL)
-CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
-CELERY_TIMEZONE = "Asia/Shanghai"
 
-# Celery Beat 定时任务配置
-CELERY_BEAT_SCHEDULE = {
-    "scan-local-media-every-5-minutes": {
-        "task": "comic.tasks.scan_local_media_task",
-        "schedule": 300,  # 每 300 秒（5 分钟）执行一次
-    },
-}
-
-# 异步爬虫并发控制（阶段 2）：沿用 jm-option.yml download.threading 语义
+# 异步爬虫并发控制
 JM_DOWNLOAD_IMAGE_CONCURRENCY = int(os.environ.get("JM_DOWNLOAD_IMAGE_CONCURRENCY", "30"))
 JM_DOWNLOAD_PHOTO_CONCURRENCY = int(os.environ.get("JM_DOWNLOAD_PHOTO_CONCURRENCY", "3"))
+RUST_DOWNLOADER_URL = os.environ.get("RUST_DOWNLOADER_URL", "http://127.0.0.1:3080")
 
 # 5. 缓存配置 (Redis)
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
         "TIMEOUT": 300,
         "KEY_PREFIX": "jmw",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
     }
 }
 
@@ -245,7 +238,7 @@ STATICFILES_DIRS = [
 ]
 
 # ------------------------------------------------------------------
-# 日志配置：控制台 + 按天滚动文件；爬虫任务单独落 celery.log
+# 日志配置：控制台 + 按天滚动文件
 # ------------------------------------------------------------------
 LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
 LOG_DIR = Path(os.getenv("DJANGO_LOG_DIR", BASE_DIR / "logs"))
@@ -277,14 +270,6 @@ LOGGING = {
             "encoding": "utf-8",
             "formatter": "verbose",
         },
-        "celery_file": {
-            "class": "JmWebProject.log_utils.CompressedTimedRotatingFileHandler",
-            "filename": LOG_DIR / "celery.log",
-            "when": "midnight",
-            "backupCount": 30,
-            "encoding": "utf-8",
-            "formatter": "verbose",
-        },
     },
     "root": {
         "handlers": ["console", "file"],
@@ -296,16 +281,13 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
-        "comic.tasks": {  # 爬虫任务单独落文件，便于排查下载问题
-            "handlers": ["console", "celery_file"],
+        "comic.services.crawl": {
+            "handlers": ["console", "file"],
             "level": LOG_LEVEL,
             "propagate": False,
         },
         "jmcomic": {  # 第三方库降噪
             "level": "WARNING",
-        },
-        "celery": {
-            "level": "INFO",
         },
     },
 }
