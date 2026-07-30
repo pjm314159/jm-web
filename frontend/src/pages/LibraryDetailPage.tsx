@@ -5,7 +5,7 @@
  * - 功能：检查更新、删除本子、章节分页
  * 路由：/library/:id
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -15,6 +15,7 @@ import {
   getAlbumDetail,
   type CheckUpdateResult,
 } from '../api/library'
+import { setPageTitle } from '../lib/usePageTitle'
 
 /* ─── 图标 ──────────────────────────────────────────────── */
 function BookIcon({ className = '' }: { className?: string }) {
@@ -138,6 +139,10 @@ export default function LibraryDetailPage() {
     queryFn: () => getAlbumDetail(Number(id)),
     enabled: !!id,
   })
+
+  useEffect(() => {
+    if (album?.name) setPageTitle(album.name)
+  }, [album?.name])
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteAlbum(Number(id)),

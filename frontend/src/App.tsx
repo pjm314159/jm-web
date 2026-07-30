@@ -7,10 +7,12 @@ import BackgroundEffects from './components/BackgroundEffects'
 import ClickEffect from './components/ClickEffect'
 import Navbar from './components/Navbar'
 import { useTheme } from './lib/useTheme'
+import { usePageTitle } from './lib/usePageTitle'
 import CrawlPage from './pages/CrawlPage'
 import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
 import LibraryDetailPage from './pages/LibraryDetailPage'
+import LibrarySearchPage from './pages/LibrarySearchPage'
 import LocalImagesPage from './pages/LocalImagesPage'
 import LocalMediaPage from './pages/LocalMediaPage'
 import LocalVideosPage from './pages/LocalVideosPage'
@@ -41,6 +43,7 @@ function App() {
 function AppContent() {
   const { isDark, toggleTheme } = useTheme()
   const { pathname } = useLocation()
+  usePageTitle()
   // 阅读页沉浸模式：隐藏全局导航栏（对应旧代码 body > header { display: none }）
   const isReader = pathname.includes('/reader/')
 
@@ -135,6 +138,15 @@ function AppContent() {
             element={
               <RequireAuth>
                 <LibraryPage />
+              </RequireAuth>
+            }
+          />
+          {/* 藏书阁高级搜索 */}
+          <Route
+            path="/library/search"
+            element={
+              <RequireAuth>
+                <LibrarySearchPage />
               </RequireAuth>
             }
           />

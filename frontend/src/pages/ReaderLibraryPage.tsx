@@ -12,6 +12,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { getAlbumDetail, getPhotoReader } from '../api/library'
+import { setPageTitle } from '../lib/usePageTitle'
 import { LocalComicImage } from '../components/reader/ComicImage'
 import {
   ChevronLeftIcon,
@@ -71,6 +72,10 @@ export default function ReaderLibraryPage({
   useEffect(() => {
     window.scrollTo({ top: 0 })
   }, [photoId, page])
+
+  useEffect(() => {
+    if (album?.name) setPageTitle(album.name)
+  }, [album?.name])
 
   const ready = !!data && !isLoading
   const startIndex = data ? data.current_start_index - 1 : 0

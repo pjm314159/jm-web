@@ -1,7 +1,9 @@
+import { useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { getLocalVideos } from '../api/local'
+import { setPageTitle } from '../lib/usePageTitle'
 import VideoPlayer from '../components/VideoPlayer'
 
 /**
@@ -26,6 +28,10 @@ export default function LocalVideosDetailPage() {
     queryFn: () => getLocalVideos(folderName!),
     enabled: !!folderName,
   })
+
+  useEffect(() => {
+    if (folderName) setPageTitle(decodeURIComponent(folderName))
+  }, [folderName])
 
   const episodes = (data?.files ?? []).map((f) => ({ name: f.name, src: f.url }))
 

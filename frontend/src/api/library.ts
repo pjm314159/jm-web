@@ -46,6 +46,36 @@ export async function getAlbums(page = 1): Promise<Paginated<Album>> {
   return data
 }
 
+/** L1+：本地库高级搜索（名称/作者模糊 + 多 tag 交集筛选）。 */
+export async function searchLibraryAlbums(params: {
+  q?: string
+  tags?: string[]
+  page?: number
+}): Promise<Paginated<Album>> {
+  const { data } = await apiClient.get<Paginated<Album>>('/library/albums/', {
+    params: {
+      q: params.q || undefined,
+      tags: params.tags?.length ? params.tags.join(',') : undefined,
+      page: params.page || 1,
+    },
+  })
+  return data
+}
+
+/** L6 tag 响应结构。 */
+export interface TagItem {
+  tag: string
+  count: number
+}
+
+/** L6：获取本地库 tag（默认 top10 频次，q 搜索全部）。 */
+export async function getLibraryTags(q?: string): Promise<TagItem[]> {
+  const { data } = await apiClient.get<{ tags: TagItem[] }>('/library/albums/tags/', {
+    params: q ? { q } : undefined,
+  })
+  return data.tags
+}
+
 /** L2：本子详情（含章节列表）。 */
 export async function getAlbumDetail(id: number): Promise<AlbumDetail> {
   const { data } = await apiClient.get<AlbumDetail>(`/library/albums/${id}/`)

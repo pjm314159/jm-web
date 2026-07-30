@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { getCrawlTaskStatus, submitCrawl } from '../api/crawl'
 import { getSearchAlbumDetail } from '../api/search'
+import { setPageTitle } from '../lib/usePageTitle'
 
 /* ─── 图标 ──────────────────────────────────────────────── */
 function HeartIcon({ className = '' }: { className?: string }) {
@@ -164,6 +165,10 @@ export default function SearchDetailPage() {
     enabled: !!jmId,
   })
 
+  useEffect(() => {
+    if (data?.album?.name) setPageTitle(data.album.name)
+  }, [data?.album?.name])
+
   if (isLoading) return <LoadingSkeleton />
 
   if (isError || !data) {
@@ -228,20 +233,18 @@ export default function SearchDetailPage() {
             </span>
           </div>
 
-          {/* 下载按钮 */}
-          <button
-            type="button"
-            onClick={handleDownload}
-            disabled={dlState === 'loading' || dlState === 'downloading'}
-            className={`flex items-center justify-center gap-2 rounded-2xl border px-6 py-3.5 text-sm font-bold shadow-lg backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:shadow-xl active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 ${
-              is_downloaded
-                ? 'border-emerald-200/50 bg-emerald-50/50 text-emerald-600 hover:border-emerald-300/60 dark:border-emerald-500/20 dark:bg-emerald-950/30 dark:text-emerald-400'
-                : 'border-white/40 bg-white/50 text-indigo-600 hover:border-indigo-300/60 dark:border-white/10 dark:bg-slate-800/60 dark:text-indigo-400'
-            }`}
-          >
-            <DownloadIcon className="h-5 w-5" />
-            {dlState === 'loading' ? '提交中…' : dlState === 'downloading' ? '下载中…' : is_downloaded ? '已下载' : '添加下载任务'}
-          </button>
+          {/* 下载按钮（已下载时隐藏） */}
+          {!is_downloaded && (
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={dlState === 'loading' || dlState === 'downloading'}
+              className="flex items-center justify-center gap-2 rounded-2xl border border-white/40 bg-white/50 px-6 py-3.5 text-sm font-bold text-indigo-600 shadow-lg backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:border-indigo-300/60 hover:shadow-xl active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-slate-800/60 dark:text-indigo-400"
+            >
+              <DownloadIcon className="h-5 w-5" />
+              {dlState === 'loading' ? '提交中…' : dlState === 'downloading' ? '下载中…' : '添加下载任务'}
+            </button>
+          )}
           {/* 提交反馈 */}
           {dlMsg && (
             <p className={`text-center text-xs font-medium ${dlState === 'error' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>

@@ -28,6 +28,50 @@ def get_library_albums():
     return Album.objects.filter(photos__is_downloaded=True).distinct().order_by("-updated_at")
 
 
+def search_library_albums(q: str = "", tags: list[str] | None = None):
+    """L1+：本地库高级搜索——名称/作者模糊 + 多 tag 交集筛选。
+
+    注意：SQLite 不支持 JSONField __contains，改用 Python 层过滤。
+    """
+    qs = get_library_albums()
+    if q:
+        from django.db.models import Q
+
+        qs = qs.filter(Q(name__icontains=q) | Q(author__icontains=q))
+    if tags:
+        # SQLite 兼容：在 Python 层做 tag 交集筛选
+        album_ids = [
+            album.pk
+            for album in qs.only("pk", "tags")
+            if album.tags and all(tag in album.tags for tag in tags)
+        ]
+        qs = get_library_albums().filter(pk__in=album_ids)
+    return qs
+
+
+def get_all_library_tags(q: str = "", limit: int = 10) -> list[dict]:
+    """返回本地库 tag（按频次降序）。
+
+    - 无 q 时返回频次最高的前 limit 个 tag
+    - 有 q 时返回所有包含 q 的 tag（不限数量）
+    """
+    from collections import Counter
+
+    counter: Counter = Counter()
+    for tag_list in Album.objects.filter(photos__is_downloaded=True).values_list("tags", flat=True).distinct():
+        if tag_list:
+            counter.update(tag_list)
+
+    if q:
+        kw = q.lower()
+        items = [(tag, cnt) for tag, cnt in counter.items() if kw in tag.lower()]
+        items.sort(key=lambda x: -x[1])
+    else:
+        items = counter.most_common(limit)
+
+    return [{"tag": tag, "count": cnt} for tag, cnt in items]
+
+
 def delete_album(album: Album) -> None:
     """L3：删除本子——物理文件夹 + Redis episode 缓存 + 数据库记录（CASCADE 删章节）。"""
     safe_name = sanitize_filename(album.name)

@@ -11,6 +11,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { getLocalImages } from '../api/local'
+import { setPageTitle } from '../lib/usePageTitle'
 import { LocalComicImage } from '../components/reader/ComicImage'
 import {
   ChevronLeftIcon,
@@ -58,6 +59,10 @@ export default function ReaderLocalPage({
   useEffect(() => {
     window.scrollTo({ top: 0 })
   }, [folderName, page])
+
+  useEffect(() => {
+    if (folderName) setPageTitle(decodeURIComponent(folderName))
+  }, [folderName])
 
   const ready = !!data && !isLoading
   const startIndex = data ? data.start_index - 1 : 0

@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { getSearchAlbumEpisodes, getSearchPhotoImages } from '../api/search'
 import type { SearchReaderImage } from '../api/search'
+import { setPageTitle } from '../lib/usePageTitle'
 import { WasmComicImage } from '../components/reader/WasmComicImage'
 import { useVirtualImages } from '../components/reader/useVirtualImages'
 import {
@@ -76,6 +77,10 @@ export default function ReaderOnlinePage({
   useEffect(() => {
     window.scrollTo({ top: 0 })
   }, [photoId, page])
+
+  useEffect(() => {
+    if (episodesData?.name) setPageTitle(episodesData.name)
+  }, [episodesData?.name])
 
   const ready = !!data && !isLoading
   const startIndex = data ? data.current_start_index - 1 : 0

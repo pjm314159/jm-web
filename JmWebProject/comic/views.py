@@ -43,6 +43,11 @@ class AlbumViewSet(
     def get_queryset(self):
         # L1 列表仅展示含已下载章节的本子；detail/destroy/check-updates 可操作任何存在的本子
         if self.action == "list":
+            q = self.request.query_params.get("q", "").strip()
+            tags_param = self.request.query_params.get("tags", "").strip()
+            tags = [t.strip() for t in tags_param.split(",") if t.strip()] if tags_param else None
+            if q or tags:
+                return library.search_library_albums(q=q, tags=tags)
             return library.get_library_albums()
         return Album.objects.all().order_by("-updated_at")
 
@@ -65,6 +70,13 @@ class AlbumViewSet(
             logger.exception("检测更新失败")
             return Response({"error": f"检测失败: {e!s}"}, status=status.HTTP_502_BAD_GATEWAY)
         return Response(data)
+
+    @action(detail=False, methods=["get"])
+    def tags(self, request):
+        """L6：返回本地库 tag（默认 top10 频次，支持 q 搜索全部）。"""
+        q = request.query_params.get("q", "").strip()
+        limit = int(request.query_params.get("limit", 10))
+        return Response({"tags": library.get_all_library_tags(q=q, limit=limit)})
 
 
 class PhotoReaderView(APIView):
