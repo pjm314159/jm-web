@@ -73,25 +73,33 @@ export default function LibrarySearchPage() {
   const [page, setPage] = useState(1)
   const [tagFilter, setTagFilter] = useState('')
   const [authorFilter, setAuthorFilter] = useState('')
-  // 同一时间只展开一个筛选面板
-  const [activePanel, setActivePanel] = useState<'tag' | 'author' | null>('tag')
+  // 同一时间只展开一个筛选面板（默认收起）
+  const [activePanel, setActivePanel] = useState<'tag' | 'author' | null>(null)
   // 收起动画期间保留上次面板内容，避免内容瞬间消失
-  const [displayedPanel, setDisplayedPanel] = useState<'tag' | 'author' | null>('tag')
-  const lastPanelRef = useRef<'tag' | 'author'>('tag')
+  const [displayedPanel, setDisplayedPanel] = useState<'tag' | 'author' | null>(null)
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const expandTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const tagPanelRef = useRef<HTMLDivElement>(null)
 
   const togglePanel = (panel: 'tag' | 'author') => {
+    clearTimeout(collapseTimerRef.current)
+    clearTimeout(expandTimerRef.current)
+
     setActivePanel((prev) => {
       if (prev === panel) {
         // 收起：保留内容供动画展示，动画结束后清除
-        clearTimeout(collapseTimerRef.current)
         collapseTimerRef.current = setTimeout(() => setDisplayedPanel(null), 500)
         return null
       }
-      // 展开/切换：立即显示新内容
-      clearTimeout(collapseTimerRef.current)
-      lastPanelRef.current = panel
+      if (prev !== null) {
+        // 切换：先收起(250ms)，再展开新面板
+        collapseTimerRef.current = setTimeout(() => {
+          setDisplayedPanel(panel)
+          setActivePanel(panel)
+        }, 250)
+        return null
+      }
+      // 展开：直接显示
       setDisplayedPanel(panel)
       return panel
     })
