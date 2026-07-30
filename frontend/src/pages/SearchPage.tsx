@@ -321,7 +321,7 @@ export default function SearchPage() {
                 coverUrl={album.cover_url}
                 meta={album.update_time}
                 downloaded={album.is_downloaded}
-                onClick={() => window.open(`/search/album/${album.jm_id}`, '_blank')}
+                href={`/search/album/${album.jm_id}`}
                 onTagClick={searchByTag}
                 onAuthorClick={searchByAuthor}
               />

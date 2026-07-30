@@ -28,8 +28,8 @@ def get_library_albums():
     return Album.objects.filter(photos__is_downloaded=True).distinct().order_by("-updated_at")
 
 
-def search_library_albums(q: str = "", tags: list[str] | None = None):
-    """L1+：本地库高级搜索——名称/作者模糊 + 多 tag 交集筛选。
+def search_library_albums(q: str = "", tags: list[str] | None = None, author: str = ""):
+    """L1+：本地库高级搜索——名称/作者模糊 + 多 tag 交集筛选 + 作者精确筛选。
 
     注意：SQLite 不支持 JSONField __contains，改用 Python 层过滤。
     """
@@ -38,6 +38,8 @@ def search_library_albums(q: str = "", tags: list[str] | None = None):
         from django.db.models import Q
 
         qs = qs.filter(Q(name__icontains=q) | Q(author__icontains=q))
+    if author:
+        qs = qs.filter(author__iexact=author)
     if tags:
         # SQLite 兼容：在 Python 层做 tag 交集筛选
         album_ids = [
@@ -70,6 +72,29 @@ def get_all_library_tags(q: str = "", limit: int = 10) -> list[dict]:
         items = counter.most_common(limit)
 
     return [{"tag": tag, "count": cnt} for tag, cnt in items]
+
+
+def get_all_library_authors(q: str = "", limit: int = 10) -> list[dict]:
+    """返回本地库作者（按作品数降序）。
+
+    - 无 q 时返回作品数最多的前 limit 个作者
+    - 有 q 时返回所有包含 q 的作者
+    """
+    from collections import Counter
+
+    counter: Counter = Counter()
+    for author in Album.objects.filter(photos__is_downloaded=True).exclude(author__isnull=True).exclude(author="").values_list("author", flat=True).distinct():
+        if author:
+            counter[author] += Album.objects.filter(photos__is_downloaded=True, author=author).distinct().count()
+
+    if q:
+        kw = q.lower()
+        items = [(a, cnt) for a, cnt in counter.items() if kw in a.lower()]
+        items.sort(key=lambda x: -x[1])
+    else:
+        items = counter.most_common(limit)
+
+    return [{"author": a, "count": cnt} for a, cnt in items]
 
 
 def delete_album(album: Album) -> None:

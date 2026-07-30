@@ -46,8 +46,9 @@ class AlbumViewSet(
             q = self.request.query_params.get("q", "").strip()
             tags_param = self.request.query_params.get("tags", "").strip()
             tags = [t.strip() for t in tags_param.split(",") if t.strip()] if tags_param else None
-            if q or tags:
-                return library.search_library_albums(q=q, tags=tags)
+            author = self.request.query_params.get("author", "").strip()
+            if q or tags or author:
+                return library.search_library_albums(q=q, tags=tags, author=author)
             return library.get_library_albums()
         return Album.objects.all().order_by("-updated_at")
 
@@ -77,6 +78,13 @@ class AlbumViewSet(
         q = request.query_params.get("q", "").strip()
         limit = int(request.query_params.get("limit", 10))
         return Response({"tags": library.get_all_library_tags(q=q, limit=limit)})
+
+    @action(detail=False, methods=["get"])
+    def authors(self, request):
+        """L7：返回本地库作者（默认 top10 作品数，支持 q 搜索全部）。"""
+        q = request.query_params.get("q", "").strip()
+        limit = int(request.query_params.get("limit", 10))
+        return Response({"authors": library.get_all_library_authors(q=q, limit=limit)})
 
 
 class PhotoReaderView(APIView):

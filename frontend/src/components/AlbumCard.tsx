@@ -13,8 +13,8 @@ interface AlbumCardProps {
   meta?: string
   /** 为 true 显示「已下载」徽章，否则显示 JM ID。 */
   downloaded?: boolean
-  /** 点击卡片（封面/标题）触发，用于跳转详情页。 */
-  onClick?: () => void
+  /** 详情页链接，支持右键“在新标签页打开”。 */
+  href?: string
   onTagClick?: (tag: string) => void
   onAuthorClick?: (author: string) => void
 }
@@ -27,18 +27,18 @@ export default function AlbumCard({
   coverUrl,
   meta,
   downloaded = false,
-  onClick,
+  href,
   onTagClick,
   onAuthorClick,
 }: AlbumCardProps) {
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/40 bg-white/40 shadow-lg backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl dark:border-white/10 dark:bg-slate-800/50">
       {/* 封面 */}
-      <div
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
         className="relative aspect-[3/4] cursor-pointer overflow-hidden bg-slate-200/60 dark:bg-slate-700/50"
-        onClick={onClick}
-        role={onClick ? 'button' : undefined}
-        tabIndex={onClick ? 0 : undefined}
       >
         {coverUrl ? (
           <img
@@ -60,16 +60,18 @@ export default function AlbumCard({
         >
           {downloaded ? '已下载' : `ID: ${jmId}`}
         </span>
-      </div>
+      </a>
 
       {/* 信息区 */}
       <div className="flex flex-1 flex-col gap-2 p-3">
-        <h3
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
           className="line-clamp-2 cursor-pointer text-sm font-bold leading-snug text-slate-800 transition-colors hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
-          onClick={onClick}
         >
           {name}
-        </h3>
+        </a>
         <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
           <button
             type="button"
