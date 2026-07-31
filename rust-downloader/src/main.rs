@@ -6,6 +6,7 @@ mod scanner;
 mod task;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -34,6 +35,14 @@ async fn submit_download(
         );
     }
 
+    // 拒绝超过最大排队数
+    if state.active_tasks() >= state.config.max_queued_tasks {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "queue full", "max": state.config.max_queued_tasks })),
+        );
+    }
+
     let position = state.active_tasks() + 1;
 
     // 先注册为 queued
@@ -45,6 +54,7 @@ async fn submit_download(
             done: 0,
             total: req.images.len() as u32,
             failed: vec![],
+            finished_at: None,
         },
     );
 
@@ -112,6 +122,22 @@ async fn main() {
     let scan_interval = config.scan_interval_secs;
     tokio::spawn(async move {
         scanner::start_scheduler(scan_redis, scan_media, scan_interval).await;
+    });
+
+    // 后台淡汰过期任务（防止 DashMap 无限增长）
+    let eviction_state = state.clone();
+    let retention = Duration::from_secs(config.task_retention_secs);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let now = std::time::Instant::now();
+            eviction_state.tasks.retain(|_, t| {
+                t.finished_at
+                    .map(|f| now.duration_since(f) < retention)
+                    .unwrap_or(true) // 未完成的任务始终保留
+            });
+        }
     });
 
     // 构建路由

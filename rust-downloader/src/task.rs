@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::callback::send_progress;
 use crate::config::Config;
@@ -54,6 +54,9 @@ pub struct TaskState {
     pub done: u32,
     pub total: u32,
     pub failed: Vec<String>,
+    /// 任务完成时间（用于过期淡汰）
+    #[serde(skip)]
+    pub finished_at: Option<Instant>,
 }
 
 /// 全局应用状态
@@ -118,6 +121,7 @@ pub async fn execute_download(state: Arc<AppState>, req: DownloadRequest) {
             done: 0,
             total: req.images.len() as u32,
             failed: vec![],
+            finished_at: None,
         },
     );
 
@@ -184,10 +188,20 @@ pub async fn execute_download(state: Arc<AppState>, req: DownloadRequest) {
         TaskStatus::Failed
     };
 
+    // 失败时根据配置决定是否清理已下载的不完整文件
+    if final_status == TaskStatus::Failed && state.config.cleanup_on_failure {
+        let dir = &req.save_dir;
+        match tokio::fs::remove_dir_all(dir).await {
+            Ok(()) => info!("已清理失败任务目录: {dir}"),
+            Err(e) => warn!("清理目录失败 {dir}: {e}"),
+        }
+    }
+
     if let Some(mut t) = state.tasks.get_mut(&task_id) {
         t.status = final_status.clone();
         t.done = result.success;
         t.failed = result.failed.clone();
+        t.finished_at = Some(Instant::now());
     }
 
     // 最终回调

@@ -10,6 +10,12 @@ pub struct Config {
     pub jitter_cap_ms: u64,
     pub timeout_secs: u64,
     pub scan_interval_secs: u64,
+    /// 失败时是否清理已下载的不完整文件（默认 true）
+    pub cleanup_on_failure: bool,
+    /// 已完成/失败任务在内存中保留多久（秒），超过后自动淡汰（默认 3600）
+    pub task_retention_secs: u64,
+    /// 最大排队任务数，超过后拒绝新任务（默认 200）
+    pub max_queued_tasks: usize,
 }
 
 impl Config {
@@ -23,6 +29,11 @@ impl Config {
             jitter_cap_ms: env_or("JITTER_CAP_MS", "2000").parse().unwrap_or(2000),
             timeout_secs: env_or("TIMEOUT_SECS", "30").parse().unwrap_or(30),
             scan_interval_secs: env_or("SCAN_INTERVAL_SECS", "60").parse().unwrap_or(60),
+            cleanup_on_failure: env_or("CLEANUP_ON_FAILURE", "true") != "false",
+            task_retention_secs: env_or("TASK_RETENTION_SECS", "3600")
+                .parse()
+                .unwrap_or(3600),
+            max_queued_tasks: env_or("MAX_QUEUED_TASKS", "200").parse().unwrap_or(200),
         }
     }
 }

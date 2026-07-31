@@ -47,6 +47,9 @@ services:
       - JITTER_CAP_MS=2000
       - TIMEOUT_SECS=30
       - SCAN_INTERVAL_SECS=60
+      - CLEANUP_ON_FAILURE=true
+      - TASK_RETENTION_SECS=3600
+      - MAX_QUEUED_TASKS=200
       - RUST_LOG=info
     depends_on:
       - redis
