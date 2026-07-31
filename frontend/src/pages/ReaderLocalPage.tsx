@@ -97,7 +97,7 @@ export default function ReaderLocalPage({
       {bg !== 'default' && (
         <div className={`fixed inset-0 -z-10 ${bg === 'black' ? 'bg-black' : 'bg-neutral-900'}`} />
       )}
-      <ReaderProgressBar current={currentImage} total={totalImages} />
+      <ReaderProgressBar current={currentImage - startIndex} total={data?.files.length ?? 0} />
 
       <ReaderHeader
         visible={barsVisible}

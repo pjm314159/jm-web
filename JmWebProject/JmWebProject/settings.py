@@ -69,7 +69,7 @@ SECRET_KEY = os.environ.get(
 )
 
 
-ALLOWED_HOSTS = [os.getenv("ALLOWED_HOST"), "127.0.0.1", "localhost"]
+ALLOWED_HOSTS = [os.getenv("ALLOWED_HOST"), "127.0.0.1", "localhost", "web"]
 # security
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True

@@ -314,7 +314,7 @@ export function PageSelect({
 
 /* ─── 共享 hooks ────────────────────────────────────────── */
 /** 顶部常驻阅读进度条（工具栏隐藏时仍保留进度感）。
- * 基于当前图片序号 / 总图片数计算，真实反映阅读进度。 */
+ * 基于当前分页内的图片序号 / 本页总图片数，真实反映本页是否读完。 */
 export function ReaderProgressBar({ current, total }: { current: number; total: number }) {
   const progress = total > 0 ? Math.min(100, ((current + 1) / total) * 100) : 0
 
