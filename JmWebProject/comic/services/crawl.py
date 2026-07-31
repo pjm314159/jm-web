@@ -86,6 +86,7 @@ def _get_or_create_photo(album_obj: Album, p_id, p_index, p_name) -> Photo:
 # ------------------------------------------------------------------
 def _submit_to_rust(task_id: str, save_dir: str, scramble_id: str, aid: str, images: list) -> bool:
     """提交下载任务到 Rust 服务，返回是否成功。"""
+    callback_url = f"{settings.CRAWL_CALLBACK_URL}/api/crawl/callback/"
     payload = {
         "task_id": task_id,
         "save_dir": save_dir,
@@ -93,6 +94,7 @@ def _submit_to_rust(task_id: str, save_dir: str, scramble_id: str, aid: str, ima
         "aid": aid,
         "concurrency": settings.JM_DOWNLOAD_IMAGE_CONCURRENCY,
         "images": images,
+        "callback_url": callback_url,
     }
     try:
         resp = _get_rust_client().post("/api/v1/download", json=payload)
@@ -304,27 +306,31 @@ def _save_crawl_info(crawl_id: str, jm_id: str, jm_type: str, task_ids: list, to
     )
 
 
-def _mark_downloaded(task_id: str, info: dict):
-    """任务完成后标记 Photo 已下载（幂等）。"""
+def _mark_downloaded(task_id: str, info: dict | None = None):
+    """任务完成后标记 Photo 已下载（幂等，容错）。"""
     # task_id 格式: {crawl_id}-{photo_jm_id}
     parts = task_id.split("-", 1)
     if len(parts) < 2:
+        logger.warning("无法解析 task_id: %s", task_id)
         return
     photo_jm_id = parts[1]
     try:
-        photo = Photo.objects.get(jm_id=photo_jm_id)
+        photo = Photo.objects.select_related("album").get(jm_id=photo_jm_id)
         if not photo.is_downloaded:
             safe_album = sanitize_filename(photo.album.name)
             safe_photo = sanitize_filename(photo.name)
             photo.is_downloaded = True
             photo.save_path = os.path.join("images", "jmcomic", safe_album, safe_photo)
-            photo.save()
+            photo.save(update_fields=["is_downloaded", "save_path"])
             # 首章设封面（Rust 已随章节任务下载 cover.png）
             if not photo.album.cover_path:
                 photo.album.cover_path = os.path.join(photo.save_path, "cover.png")
-                photo.album.save()
+                photo.album.save(update_fields=["cover_path"])
+            logger.info("已标记下载完成: %s (%s)", photo_jm_id, photo.save_path)
     except Photo.DoesNotExist:
-        pass
+        logger.warning("回调标记失败，Photo 不存在: jm_id=%s", photo_jm_id)
+    except Exception:
+        logger.exception("标记下载完成时出错: jm_id=%s", photo_jm_id)
 
 
 def _clear_caches():
@@ -335,3 +341,24 @@ def _clear_caches():
         cache.delete("jmw-local-media-folders")
     except Exception:
         pass
+
+
+# ------------------------------------------------------------------
+# Rust 回调处理
+# ------------------------------------------------------------------
+def handle_rust_callback(data: dict) -> dict:
+    """处理 Rust 下载服务的完成回调，立即写入 DB。"""
+    task_id = data.get("task_id", "")
+    status_str = data.get("status", "")
+
+    if not task_id:
+        return {"ok": False, "error": "missing task_id"}
+
+    if status_str == "completed":
+        _mark_downloaded(task_id)
+        _clear_caches()
+        logger.info("Rust 回调: 任务完成 %s", task_id)
+    elif status_str == "failed":
+        logger.warning("Rust 回调: 任务失败 %s, failed=%s", task_id, data.get("failed"))
+
+    return {"ok": True}

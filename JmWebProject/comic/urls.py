@@ -14,13 +14,14 @@ router.register(r"library/albums", views.AlbumViewSet, basename="album")
 urlpatterns = [
     # Library L5：本地阅读器
     path("library/photos/<int:pk>/", views.PhotoReaderView.as_view(), name="photo_reader"),
-    # Crawl C1-C2：提交 + 任务状态
+    # Crawl C1-C3：提交 + 任务状态 + Rust 回调
     path("crawl/", views.CrawlSubmitView.as_view(), name="crawl_submit"),
     path(
         "crawl/tasks/<str:task_id>/",
         views.CrawlTaskStatusView.as_view(),
         name="crawl_task_status",
     ),
+    path("crawl/callback/", views.CrawlCallbackView.as_view(), name="crawl_callback"),
     # Local M1-M5
     path("local/media/", views.LocalMediaView.as_view(), name="local_media"),
     path("local/media/refresh/", views.LocalMediaRefreshView.as_view(), name="local_media_refresh"),

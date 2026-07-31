@@ -5,7 +5,6 @@
  * - 章内分页（300 图/页）+ 页码选择跳转（合并进 x/y 显示）
  * - 液态玻璃 + 星星装饰；选中态统一蓝色
  */
-import { useEffect, useState } from 'react'
 import ThemeToggle from '../ThemeToggle'
 import type { ReaderBg } from './useReaderSettings'
 
@@ -315,25 +314,14 @@ export function PageSelect({
 
 /* ─── 共享 hooks ────────────────────────────────────────── */
 /** 顶部常驻阅读进度条（工具栏隐藏时仍保留进度感）。
- * 自己监听滚动自己更新，滚动状态不外泄到页面树。 */
-export function ReaderProgressBar() {
-  const [progress, setProgress] = useState(0)
-
-  useEffect(() => {
-    const onScroll = () => {
-      const doc = document.documentElement
-      const max = doc.scrollHeight - window.innerHeight
-      setProgress(max > 0 ? Math.min(100, (window.scrollY / max) * 100) : 0)
-    }
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
+ * 基于当前图片序号 / 总图片数计算，真实反映阅读进度。 */
+export function ReaderProgressBar({ current, total }: { current: number; total: number }) {
+  const progress = total > 0 ? Math.min(100, ((current + 1) / total) * 100) : 0
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5">
       <div
-        className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-[width] duration-150"
+        className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-[width] duration-300 ease-out"
         style={{ width: `${progress}%` }}
       />
     </div>

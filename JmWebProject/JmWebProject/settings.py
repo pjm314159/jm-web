@@ -34,6 +34,8 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 JM_DOWNLOAD_IMAGE_CONCURRENCY = int(os.environ.get("JM_DOWNLOAD_IMAGE_CONCURRENCY", "30"))
 JM_DOWNLOAD_PHOTO_CONCURRENCY = int(os.environ.get("JM_DOWNLOAD_PHOTO_CONCURRENCY", "3"))
 RUST_DOWNLOADER_URL = os.environ.get("RUST_DOWNLOADER_URL", "http://127.0.0.1:3080")
+# Rust 下载完成后的回调地址（Docker 内为 http://web:8000）
+CRAWL_CALLBACK_URL = os.environ.get("CRAWL_CALLBACK_URL", "http://127.0.0.1:8000")
 
 # 5. 缓存配置 (Redis)
 CACHES = {

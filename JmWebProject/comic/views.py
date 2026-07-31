@@ -142,6 +142,17 @@ class CrawlTaskStatusView(APIView):
         return Response(result)
 
 
+class CrawlCallbackView(APIView):
+    """C3：Rust 下载完成回调（内部接口，立即写入 DB）。"""
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        result = crawl_service.handle_rust_callback(request.data)
+        return Response(result)
+
+
 # ====================================================
 # 本地媒体（/api/local/）M1-M5
 # ====================================================

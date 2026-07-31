@@ -172,7 +172,7 @@ pub async fn download_chapter(
     };
     let mut done = 0u32;
 
-    let results: Vec<Result<(), String>> = stream::iter(images.iter().cloned())
+    let mut futures = stream::iter(images.iter().cloned())
         .map(|img| async move {
             download_one(
                 client,
@@ -185,11 +185,9 @@ pub async fn download_chapter(
             )
             .await
         })
-        .buffer_unordered(concurrency.max(1))
-        .collect()
-        .await;
+        .buffer_unordered(concurrency.max(1));
 
-    for res in results {
+    while let Some(res) = futures.next().await {
         done += 1;
         match res {
             Ok(()) => result.success += 1,

@@ -22,6 +22,7 @@ services:
       - DJANGO_DEBUG=false
       - REDIS_URL=redis://redis:6379/0
       - RUST_DOWNLOADER_URL=http://rust_downloader:3080
+      - CRAWL_CALLBACK_URL=http://web:8000
     depends_on:
       - redis
       - rust_downloader

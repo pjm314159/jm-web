@@ -120,7 +120,7 @@ export default function ReaderLibraryPage({
       {bg !== 'default' && (
         <div className={`fixed inset-0 -z-10 ${bg === 'black' ? 'bg-black' : 'bg-neutral-900'}`} />
       )}
-      <ReaderProgressBar />
+      <ReaderProgressBar current={currentImage} total={totalImages} />
 
       <ReaderHeader
         visible={barsVisible}
