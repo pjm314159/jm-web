@@ -48,7 +48,7 @@ export function useVirtualImages(images: SearchReaderImage[]) {
     })
     workerRef.current = worker
 
-    worker.onmessage = (e: MessageEvent<DecodeResponse>) => {
+    worker.addEventListener('message', (e: MessageEvent<DecodeResponse>) => {
       const { id, bitmap, width, height, error } = e.data
       const idx = reqIndexMap.current.get(id)
       if (idx === undefined) return
@@ -69,7 +69,7 @@ export function useVirtualImages(images: SearchReaderImage[]) {
         ...prev,
         [idx]: { status: 'done', bitmap, width, height },
       }))
-    }
+    })
 
     return () => {
       worker.terminate()

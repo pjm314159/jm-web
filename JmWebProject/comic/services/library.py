@@ -28,7 +28,9 @@ def get_library_albums():
     return Album.objects.filter(photos__is_downloaded=True).distinct().order_by("-updated_at")
 
 
-def search_library_albums(q: str = "", tags: list[str] | None = None, authors: list[str] | None = None):
+def search_library_albums(
+    q: str = "", tags: list[str] | None = None, authors: list[str] | None = None
+):
     """L1+：本地库高级搜索——名称/作者模糊 + 多 tag 交集筛选 + 多作者筛选。
 
     注意：SQLite 不支持 JSONField __contains，改用 Python 层过滤。
@@ -60,7 +62,9 @@ def get_all_library_tags(q: str = "", limit: int = 10) -> list[dict]:
     from collections import Counter
 
     counter: Counter = Counter()
-    for tag_list in Album.objects.filter(photos__is_downloaded=True).values_list("tags", flat=True).distinct():
+    for tag_list in (
+        Album.objects.filter(photos__is_downloaded=True).values_list("tags", flat=True).distinct()
+    ):
         if tag_list:
             counter.update(tag_list)
 
@@ -83,9 +87,17 @@ def get_all_library_authors(q: str = "", limit: int = 10) -> list[dict]:
     from collections import Counter
 
     counter: Counter = Counter()
-    for author in Album.objects.filter(photos__is_downloaded=True).exclude(author__isnull=True).exclude(author="").values_list("author", flat=True).distinct():
+    for author in (
+        Album.objects.filter(photos__is_downloaded=True)
+        .exclude(author__isnull=True)
+        .exclude(author="")
+        .values_list("author", flat=True)
+        .distinct()
+    ):
         if author:
-            counter[author] += Album.objects.filter(photos__is_downloaded=True, author=author).distinct().count()
+            counter[author] += (
+                Album.objects.filter(photos__is_downloaded=True, author=author).distinct().count()
+            )
 
     if q:
         kw = q.lower()
@@ -133,6 +145,8 @@ def check_album_updates(album: Album) -> dict:
 
     with contextlib.suppress(Exception):
         cache.set(f"jmw-album-episodes-{album.jm_id}", list(remote_ids), timeout=None)
+        # 清除搜索详情页缓存，使更新状态即时反映
+        cache.delete(f"jmw-album-detail-{album.jm_id}")
 
     album.total_episodes = len(remote_episodes)
     album.save(update_fields=["total_episodes"])

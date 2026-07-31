@@ -245,6 +245,28 @@ export default function SearchDetailPage() {
               {dlState === 'loading' ? '提交中…' : dlState === 'downloading' ? '下载中…' : '添加下载任务'}
             </button>
           )}
+          {/* 更新提示（已下载且有新章节） */}
+          {is_downloaded && data.has_updates && (
+            <div className="animate-update-pop-in inline-flex items-center gap-2.5 rounded-full border border-white/40 bg-white/40 py-1.5 pl-4 pr-1.5 shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-slate-800/50">
+              <span className="relative flex items-center gap-2">
+                <span className="animate-update-pulse-dot h-2 w-2 rounded-full bg-indigo-500" />
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {data.new_episode_count} 个新章节
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={handleDownload}
+                disabled={dlState === 'loading' || dlState === 'downloading'}
+                className="glass-btn glass-btn-sm !py-1 !px-3 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="glass-btn-overlay" />
+                <span className="glass-btn-text !text-[11px]">
+                  {dlState === 'loading' ? '提交中…' : dlState === 'downloading' ? '下载中…' : '立即更新'}
+                </span>
+              </button>
+            </div>
+          )}
           {/* 提交反馈 */}
           {dlMsg && (
             <p className={`text-center text-xs font-medium ${dlState === 'error' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>

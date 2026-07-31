@@ -119,14 +119,13 @@ def get_album_detail(jm_id: str) -> dict:
 
     new_episode_count = 0
     has_updates = False
-    if is_downloaded:
+    if is_downloaded and local_album:
         remote_ids = {str(ep[0]) for ep in album_detail.episode_list if ep[0]}
-        local_cached_ids = set(cache.get(f"jmw-album-episodes-{jm_id}", []) or [])
-        if local_cached_ids:
-            new_episode_count = len(remote_ids - local_cached_ids)
-        else:
-            local_photo_count = local_album.photos.count() if local_album else 0
-            new_episode_count = len(remote_ids) - local_photo_count
+        # 对比本地已下载章节（DB 记录），而非缓存的远端 ID
+        local_downloaded_ids = set(
+            local_album.photos.filter(is_downloaded=True).values_list("jm_id", flat=True)
+        )
+        new_episode_count = len(remote_ids - local_downloaded_ids)
         has_updates = new_episode_count > 0
 
     author = "未知"

@@ -5,7 +5,7 @@
  * - 功能：检查更新、删除本子、章节分页
  * 路由：/library/:id
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -15,6 +15,7 @@ import {
   getAlbumDetail,
   type CheckUpdateResult,
 } from '../api/library'
+import { getCrawlTaskStatus, submitCrawl } from '../api/crawl'
 import { setPageTitle } from '../lib/usePageTitle'
 
 /* ─── 图标 ──────────────────────────────────────────────── */
@@ -81,13 +82,6 @@ function CheckCircleIcon({ className = '' }: { className?: string }) {
     </svg>
   )
 }
-function DownloadIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-    </svg>
-  )
-}
 
 /* ─── 章节分页 ──────────────────────────────────────────── */
 const EP_PER_PAGE = 24
@@ -133,6 +127,12 @@ export default function LibraryDetailPage() {
   const [updateResult, setUpdateResult] = useState<CheckUpdateResult | null>(null)
   const [checking, setChecking] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [updating, setUpdating] = useState(false)
+  const [updateMsg, setUpdateMsg] = useState('')
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // 清理轮询
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
   const { data: album, isLoading, isError } = useQuery({
     queryKey: ['library-detail', id],
@@ -166,6 +166,39 @@ export default function LibraryDetailPage() {
       setUpdateResult(null)
     } finally {
       setChecking(false)
+    }
+  }
+
+  const handleUpdateDownload = async () => {
+    if (!album?.jm_id || updating) return
+    setUpdating(true)
+    setUpdateMsg('提交更新任务…')
+    try {
+      const res = await submitCrawl(album.jm_id)
+      setUpdateMsg(res.message || '任务已提交，正在下载新章节…')
+      // 轮询进度
+      if (pollRef.current) clearInterval(pollRef.current)
+      pollRef.current = setInterval(async () => {
+        try {
+          const st = await getCrawlTaskStatus(res.task_id)
+          if (st.state === 'SUCCESS' || st.state === 'PARTIAL') {
+            if (pollRef.current) clearInterval(pollRef.current)
+            setUpdating(false)
+            setUpdateMsg(st.state === 'SUCCESS' ? '更新完成' : '部分章节下载失败')
+            queryClient.invalidateQueries({ queryKey: ['library-detail', id] })
+            setUpdateResult(null)
+          } else if (st.state === 'FAILED') {
+            if (pollRef.current) clearInterval(pollRef.current)
+            setUpdating(false)
+            setUpdateMsg('更新失败')
+          } else if (st.progress) {
+            setUpdateMsg(`下载中 ${st.progress.images_done}/${st.progress.images_total} 张`)
+          }
+        } catch { /* 轮询失败静默忽略 */ }
+      }, 2000)
+    } catch {
+      setUpdating(false)
+      setUpdateMsg('提交失败，请稍后重试')
     }
   }
 
@@ -323,7 +356,16 @@ export default function LibraryDetailPage() {
           )}
 
           {/* 检查更新结果 */}
-          {updateResult && <UpdateNotice result={updateResult} />}
+          {updateResult && <UpdateNotice result={updateResult} onUpdate={handleUpdateDownload} updating={updating} />}
+          {/* 更新进度反馈 */}
+          {updateMsg && (
+            <span className={`animate-update-pop-in inline-flex items-center gap-1.5 text-xs font-semibold ${
+              updating ? 'text-indigo-600 dark:text-indigo-400' : 'text-emerald-600 dark:text-emerald-400'
+            }`}>
+              {updating && <span className="animate-update-pulse-dot h-1.5 w-1.5 rounded-full bg-indigo-500" />}
+              {updateMsg}
+            </span>
+          )}
 
           {/* ─── 章节目录 ─── */}
           <section>
@@ -420,39 +462,36 @@ export default function LibraryDetailPage() {
 }
 
 /* ─── 更新通知 ──────────────────────────────────────────── */
-function UpdateNotice({ result }: { result: CheckUpdateResult }) {
+function UpdateNotice({ result, onUpdate, updating }: { result: CheckUpdateResult; onUpdate: () => void; updating: boolean }) {
   if (!result.has_updates) {
     return (
-      <div className="flex items-center gap-3 rounded-2xl border border-emerald-200/60 bg-emerald-50/60 px-5 py-4 backdrop-blur-sm dark:border-emerald-500/20 dark:bg-emerald-950/20">
-        <CheckCircleIcon className="h-5 w-5 shrink-0 text-emerald-500" />
-        <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-          已是最新（本地 {result.local_count} 章 / 远端 {result.remote_count} 章）
+      <div className="animate-update-pop-in inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/40 px-4 py-2 shadow-md backdrop-blur-xl dark:border-white/10 dark:bg-slate-800/50">
+        <CheckCircleIcon className="h-3.5 w-3.5 text-emerald-500" />
+        <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+          已是最新 · {result.local_count}/{result.remote_count} 章
         </span>
       </div>
     )
   }
   return (
-    <div className="rounded-2xl border border-amber-200/60 bg-amber-50/60 px-5 py-4 backdrop-blur-sm dark:border-amber-500/20 dark:bg-amber-950/20">
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center gap-2 text-sm font-bold text-amber-700 dark:text-amber-300">
-          <RefreshIcon className="h-4 w-4" />
-          发现 {result.new_count} 个新章节
+    <div className="animate-update-pop-in inline-flex items-center gap-2.5 rounded-full border border-white/40 bg-white/40 py-1.5 pl-4 pr-1.5 shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-slate-800/50">
+      <span className="relative flex items-center gap-2">
+        <span className="animate-update-pulse-dot h-2 w-2 rounded-full bg-indigo-500" />
+        <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+          {result.new_count} 个新章节
         </span>
-        <button
-          type="button"
-          className="flex items-center gap-1.5 rounded-xl border border-amber-300/60 bg-amber-100/70 px-3.5 py-1.5 text-xs font-bold text-amber-700 transition-all hover:scale-105 hover:shadow-md active:scale-95 dark:border-amber-500/30 dark:bg-amber-900/40 dark:text-amber-300"
-        >
-          <DownloadIcon className="h-3.5 w-3.5" />
-          一键更新全部
-        </button>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {result.new_episodes.map((ep) => (
-          <span key={ep.photo_id} className="rounded-lg bg-amber-100/80 px-2.5 py-1 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-            {ep.name}
-          </span>
-        ))}
-      </div>
+      </span>
+      <button
+        type="button"
+        onClick={onUpdate}
+        disabled={updating}
+        className="glass-btn glass-btn-sm !py-1 !px-3 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <span className="glass-btn-overlay" />
+        <span className="glass-btn-text !text-[11px]">
+          {updating ? '更新中…' : '一键更新'}
+        </span>
+      </button>
     </div>
   )
 }

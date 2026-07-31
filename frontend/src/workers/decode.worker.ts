@@ -28,7 +28,7 @@ export interface DecodeResponse {
   error?: string
 }
 
-self.onmessage = async (e: MessageEvent<DecodeRequest>) => {
+self.addEventListener('message', async (e: MessageEvent<DecodeRequest>) => {
   const { id, url, num } = e.data
   try {
     await ensureWasm()
@@ -61,4 +61,4 @@ self.onmessage = async (e: MessageEvent<DecodeRequest>) => {
     }
     ;(self as unknown as Worker).postMessage(msg)
   }
-}
+})

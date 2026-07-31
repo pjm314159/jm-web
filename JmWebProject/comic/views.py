@@ -47,7 +47,11 @@ class AlbumViewSet(
             tags_param = self.request.query_params.get("tags", "").strip()
             tags = [t.strip() for t in tags_param.split(",") if t.strip()] if tags_param else None
             authors_param = self.request.query_params.get("authors", "").strip()
-            authors = [a.strip() for a in authors_param.split(",") if a.strip()] if authors_param else None
+            authors = (
+                [a.strip() for a in authors_param.split(",") if a.strip()]
+                if authors_param
+                else None
+            )
             if q or tags or authors:
                 return library.search_library_albums(q=q, tags=tags, authors=authors)
             return library.get_library_albums()

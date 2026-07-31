@@ -38,10 +38,11 @@
     "unicorn/prefer-number-coercion": "off",
     "unicorn/prefer-query-selector": "off",
     "unicorn/no-useless-promise-resolve-reject": "off",
+    "unicorn/require-post-message-target-origin": "off",
     "react-perf/jsx-no-new-function-as-prop": "off",
     "react-perf/jsx-no-new-object-as-prop": "off",
     "react-perf/jsx-no-new-array-as-prop": "off",
     "react-perf/jsx-no-jsx-as-prop": "off"
   },
-  "ignorePatterns": ["node_modules/", "dist/"]
+  "ignorePatterns": ["node_modules/", "dist/", "src/wasm/"]
 }
