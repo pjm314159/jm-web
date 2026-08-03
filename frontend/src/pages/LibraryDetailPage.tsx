@@ -275,40 +275,51 @@ export default function LibraryDetailPage() {
             {checking ? '检测中...' : '检查更新'}
           </button>
 
-          {/* 删除 */}
-          {confirmDelete ? (
-            <div className="flex flex-col gap-2 rounded-2xl border border-red-200/60 bg-red-50/60 p-4 backdrop-blur-sm dark:border-red-500/20 dark:bg-red-950/30">
-              <p className="text-xs font-semibold text-red-600 dark:text-red-400">
-                确定删除？将同时移除硬盘文件！
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => deleteMutation.mutate()}
-                  disabled={deleteMutation.isPending}
-                  className="flex-1 rounded-xl bg-red-500 px-3 py-2 text-xs font-bold text-white transition-all hover:bg-red-600 active:scale-95 disabled:opacity-60"
-                >
-                  {deleteMutation.isPending ? '删除中...' : '确认删除'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmDelete(false)}
-                  className="flex-1 rounded-xl border border-slate-200 bg-white/60 px-3 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-white active:scale-95 dark:border-white/10 dark:bg-slate-800/60 dark:text-slate-300"
-                >
-                  取消
-                </button>
-              </div>
-            </div>
-          ) : (
+          {/* 删除（原位融合：常态按钮 ⇄ 确认态，同尺寸交叉动画，不扩展布局） */}
+          <div
+            className={`grid overflow-hidden rounded-2xl border shadow-lg backdrop-blur-xl transition-colors duration-500 ${
+              confirmDelete
+                ? 'border-red-300/70 bg-red-100/40 dark:border-red-500/30 dark:bg-red-950/40'
+                : 'border-red-200/50 bg-red-50/50 dark:border-red-500/20 dark:bg-red-950/30'
+            }`}
+          >
+            {/* 常态：删除按钮 */}
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="flex items-center justify-center gap-2 rounded-2xl border border-red-200/50 bg-red-50/50 px-6 py-3 text-sm font-bold text-red-500 shadow-lg backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:border-red-300/70 hover:bg-red-100/60 hover:shadow-xl active:scale-95 dark:border-red-500/20 dark:bg-red-950/30 dark:text-red-400"
+              className={`col-start-1 row-start-1 flex items-center justify-center gap-2 px-6 py-3 text-sm font-bold text-red-500 transition-all duration-500 ease-out hover:bg-red-100/60 active:scale-95 dark:text-red-400 ${
+                confirmDelete ? 'pointer-events-none scale-75 opacity-0' : 'scale-100 opacity-100'
+              }`}
             >
               <TrashIcon className="h-5 w-5" />
               删除此本子
             </button>
-          )}
+
+            {/* 确认态：原位分体（确认 + 取消），高度与常态一致 */}
+            <div
+              className={`col-start-1 row-start-1 flex transition-all duration-500 ease-out ${
+                confirmDelete ? 'scale-100 opacity-100' : 'pointer-events-none scale-75 opacity-0'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                title="将同时移除硬盘文件"
+                className="flex-1 px-3 py-3 text-xs font-bold text-red-600 transition-all hover:bg-red-500 hover:text-white active:scale-95 disabled:cursor-wait disabled:opacity-60 dark:text-red-400 dark:hover:text-white"
+              >
+                {deleteMutation.isPending ? '删除中...' : '确认删除'}
+              </button>
+              <span className="my-2.5 w-px bg-red-200/70 dark:bg-red-500/20" />
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="flex-1 px-3 py-3 text-xs font-bold text-slate-500 transition-all hover:bg-white/60 active:scale-95 dark:text-slate-300 dark:hover:bg-slate-700/40"
+              >
+                取消
+              </button>
+            </div>
+          </div>
         </aside>
 
         {/* ─── 右侧：详情 + 章节 ─── */}

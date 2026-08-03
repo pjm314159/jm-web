@@ -30,6 +30,8 @@ export interface CrawlTaskStatus {
   state: CrawlState | string
   progress?: CrawlProgress
   error?: string
+  /** 完成时返回本地 Album DB 主键，用于跳转本地详情页 */
+  album_id?: number
 }
 
 /** C1：提交爬取任务（POST /api/crawl/），返回 task_id。 */

@@ -112,6 +112,8 @@ export default function SearchDetailPage() {
   const queryClient = useQueryClient()
   const [dlState, setDlState] = useState<'idle' | 'loading' | 'downloading' | 'success' | 'error'>('idle')
   const [dlMsg, setDlMsg] = useState('')
+  const [dlProgress, setDlProgress] = useState<{ done: number; total: number } | null>(null)
+  const [localAlbumId, setLocalAlbumId] = useState<number | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 清理轮询
@@ -125,7 +127,8 @@ export default function SearchDetailPage() {
         if (st.state === 'SUCCESS' || st.state === 'PARTIAL') {
           if (pollRef.current) clearInterval(pollRef.current)
           setDlState('success')
-          setDlMsg(st.state === 'SUCCESS' ? '下载完成' : '部分章节下载失败')
+          setDlMsg('')
+          if (st.album_id) setLocalAlbumId(st.album_id)
           queryClient.invalidateQueries({ queryKey: ['search-detail', jmId] })
         } else if (st.state === 'FAILED') {
           if (pollRef.current) clearInterval(pollRef.current)
@@ -133,7 +136,8 @@ export default function SearchDetailPage() {
           setDlMsg('下载失败')
         } else if (st.progress) {
           setDlState('downloading')
-          setDlMsg(`下载中 ${st.progress.images_done}/${st.progress.images_total} 张`)
+          setDlProgress({ done: st.progress.images_done, total: st.progress.images_total })
+          setDlMsg('')
         }
       } catch {
         // 轮询失败静默忽略
@@ -145,6 +149,7 @@ export default function SearchDetailPage() {
     if (!jmId || dlState === 'loading' || dlState === 'downloading') return
     setDlState('loading')
     setDlMsg('')
+    setDlProgress(null)
     try {
       const res = await submitCrawl(jmId)
       setDlState('downloading')
@@ -187,6 +192,9 @@ export default function SearchDetailPage() {
   }
 
   const { album, is_downloaded, local_album_id } = data
+  // 下载完成后立即切换为已下载态（无需等待 refetch）
+  const effectiveDownloaded = is_downloaded || dlState === 'success'
+  const effectiveLocalId = local_album_id ?? localAlbumId
   const episodes = album.episode_list ?? []
   const epPageCount = Math.max(1, Math.ceil(episodes.length / EP_PER_PAGE))
   const safePage = Math.min(epPage, epPageCount)
@@ -233,20 +241,42 @@ export default function SearchDetailPage() {
             </span>
           </div>
 
-          {/* 下载按钮（已下载时隐藏） */}
-          {!is_downloaded && (
+          {/* 下载按钮（未下载时显示，下载完成后丝滑淡出） */}
+          <div
+            className={`transition-all duration-500 ease-out ${
+              effectiveDownloaded
+                ? 'pointer-events-none max-h-0 scale-95 opacity-0'
+                : 'max-h-20 scale-100 opacity-100'
+            }`}
+          >
             <button
               type="button"
               onClick={handleDownload}
               disabled={dlState === 'loading' || dlState === 'downloading'}
-              className="flex items-center justify-center gap-2 rounded-2xl border border-white/40 bg-white/50 px-6 py-3.5 text-sm font-bold text-indigo-600 shadow-lg backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:border-indigo-300/60 hover:shadow-xl active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-slate-800/60 dark:text-indigo-400"
+              className="relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-2xl border border-white/40 bg-white/50 px-6 py-3.5 text-sm font-bold text-indigo-600 shadow-lg backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:border-indigo-300/60 hover:shadow-xl active:scale-95 disabled:cursor-not-allowed disabled:opacity-90 dark:border-white/10 dark:bg-slate-800/60 dark:text-indigo-400"
             >
-              <DownloadIcon className="h-5 w-5" />
-              {dlState === 'loading' ? '提交中…' : dlState === 'downloading' ? '下载中…' : '添加下载任务'}
+              {/* 下载中：按钮内部进度条填充 */}
+              {dlState === 'downloading' && dlProgress && dlProgress.total > 0 && (
+                <span
+                  className="absolute inset-y-0 left-0 bg-indigo-500/20 transition-[width] duration-700 ease-out dark:bg-indigo-400/20"
+                  style={{ width: `${Math.min(100, (dlProgress.done / dlProgress.total) * 100)}%` }}
+                />
+              )}
+              <DownloadIcon className={`relative h-5 w-5 ${dlState === 'downloading' ? 'animate-bounce' : ''}`} />
+              <span className="relative">
+                {dlState === 'loading'
+                  ? '提交中…'
+                  : dlState === 'downloading'
+                    ? dlProgress
+                      ? `下载中 ${dlProgress.done}/${dlProgress.total}`
+                      : '下载中…'
+                    : '添加下载任务'}
+              </span>
             </button>
-          )}
+          </div>
+
           {/* 更新提示（已下载且有新章节） */}
-          {is_downloaded && data.has_updates && (
+          {effectiveDownloaded && data.has_updates && (
             <div className="animate-update-pop-in inline-flex items-center gap-2.5 rounded-full border border-white/40 bg-white/40 py-1.5 pl-4 pr-1.5 shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-slate-800/50">
               <span className="relative flex items-center gap-2">
                 <span className="animate-update-pulse-dot h-2 w-2 rounded-full bg-indigo-500" />
@@ -262,28 +292,40 @@ export default function SearchDetailPage() {
               >
                 <span className="glass-btn-overlay" />
                 <span className="glass-btn-text !text-[11px]">
-                  {dlState === 'loading' ? '提交中…' : dlState === 'downloading' ? '下载中…' : '立即更新'}
+                  {dlState === 'loading'
+                    ? '提交中…'
+                    : dlState === 'downloading'
+                      ? dlProgress
+                        ? `${dlProgress.done}/${dlProgress.total}`
+                        : '下载中…'
+                      : '立即更新'}
                 </span>
               </button>
             </div>
           )}
-          {/* 提交反馈 */}
-          {dlMsg && (
-            <p className={`text-center text-xs font-medium ${dlState === 'error' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
-              {dlMsg}
-            </p>
+
+          {/* 提交反馈（仅错误时显示） */}
+          {dlMsg && dlState === 'error' && (
+            <p className="text-center text-xs font-medium text-rose-500">{dlMsg}</p>
           )}
-          {/* 本地详情快捷跳转 */}
-          {is_downloaded && local_album_id && (
+
+          {/* 本地详情快捷跳转（下载完成后丝滑淡入，与检测到本地下载样式一致） */}
+          <div
+            className={`transition-all duration-500 ease-out ${
+              effectiveDownloaded && effectiveLocalId
+                ? 'max-h-20 scale-100 opacity-100'
+                : 'pointer-events-none max-h-0 scale-95 opacity-0'
+            }`}
+          >
             <button
               type="button"
-              onClick={() => window.open(`/library/${local_album_id}`, '_blank')}
-              className="flex items-center justify-center gap-2 rounded-2xl border border-emerald-200/50 bg-emerald-50/40 px-6 py-3 text-sm font-semibold text-emerald-600 shadow-md backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:border-emerald-300/60 hover:shadow-lg active:scale-95 dark:border-emerald-500/20 dark:bg-emerald-950/20 dark:text-emerald-400"
+              onClick={() => window.open(`/library/${effectiveLocalId}`, '_blank')}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200/50 bg-emerald-50/40 px-6 py-3 text-sm font-semibold text-emerald-600 shadow-md backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:border-emerald-300/60 hover:shadow-lg active:scale-95 dark:border-emerald-500/20 dark:bg-emerald-950/20 dark:text-emerald-400"
             >
               <BookIcon className="h-4 w-4" />
               查看本地详情
             </button>
-          )}
+          </div>
         </aside>
 
         {/* ─── 右侧：详情 + 章节 ─── */}

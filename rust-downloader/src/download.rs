@@ -44,7 +44,46 @@ pub fn calc_scramble_num(scramble_id: u64, aid: u64, filename: &str) -> u32 {
     (last_char % x) * 2 + 2
 }
 
-/// 反混淆并保存（与 frontend/wasm/src/lib.rs 相同算法）
+/// 原地反转 [start, end) 范围内的行，row_buf 为单行临时缓冲
+fn reverse_rows(buf: &mut [u8], start: usize, end: usize, row_bytes: usize, row_buf: &mut [u8]) {
+    let mut lo = start;
+    let mut hi = end;
+    while lo + 1 < hi {
+        let a = lo * row_bytes;
+        let b = (hi - 1) * row_bytes;
+        row_buf.copy_from_slice(&buf[a..a + row_bytes]);
+        buf.copy_within(b..b + row_bytes, a);
+        buf[b..b + row_bytes].copy_from_slice(row_buf);
+        lo += 1;
+        hi -= 1;
+    }
+}
+
+/// 原地反混淆（P2 方案 A：O(1) 额外内存，仅一行缓冲）
+///
+/// 反混淆本质 = 将 n 个连续行块逆序排列：源图自上而下为
+/// `[slice_h] × (n-1)` + 末块 `[slice_h + over]`，反混淆后末块置顶、其余逆序。
+/// 采用经典「整体反转 + 逐块反转」原地技巧，无需全图输出缓冲。
+fn descramble_in_place(raw: &mut [u8], w: usize, h: usize, num: usize) {
+    let row_bytes = w * 4;
+    let over = h % num;
+    let slice_h = h / num;
+    let mut row_buf = vec![0u8; row_bytes];
+
+    // 1) 整体反转：行块顺序颠倒，但块内行序也颠倒
+    reverse_rows(raw, 0, h, row_bytes, &mut row_buf);
+
+    // 2) 逐块反转恢复块内行序（整体反转后首块为原末块，高 slice_h + over）
+    let first_h = slice_h + over;
+    reverse_rows(raw, 0, first_h, row_bytes, &mut row_buf);
+    let mut start = first_h;
+    for _ in 1..num {
+        reverse_rows(raw, start, start + slice_h, row_bytes, &mut row_buf);
+        start += slice_h;
+    }
+}
+
+/// 反混淆并保存（原地算法，单张峰值 ≈ 一份像素缓冲，与 frontend/wasm 逻辑等价）
 fn descramble_and_save(data: &[u8], num: u32, path: &str) -> Result<(), String> {
     let img = image::load_from_memory(data).map_err(|e| format!("decode: {e}"))?;
 
@@ -54,56 +93,29 @@ fn descramble_and_save(data: &[u8], num: u32, path: &str) -> Result<(), String> 
     }
 
     let (w, h) = img.dimensions();
-    let rgba = img.to_rgba8();
-    let raw = rgba.as_raw();
+    // P1 + P2：into_rgba8 零拷贝转换，再取走 Vec<u8> 原地重排
+    let mut raw = img.into_rgba8().into_raw();
 
-    let n = num as usize;
-    let h_usize = h as usize;
-    let w_usize = w as usize;
-    let over = h_usize % n;
-    let slice_h = h_usize / n;
+    descramble_in_place(&mut raw, w as usize, h as usize, num as usize);
 
-    let mut output = vec![0u8; w_usize * h_usize * 4];
-
-    for i in 0..n {
-        let move_h = if i == 0 { slice_h + over } else { slice_h };
-        let y_src = if i == 0 {
-            h_usize - slice_h - over
-        } else {
-            h_usize - slice_h * (i + 1) - over
-        };
-        let y_dst = if i == 0 { 0 } else { slice_h * i + over };
-
-        for row in 0..move_h {
-            let src_start = (y_src + row) * w_usize * 4;
-            let dst_start = (y_dst + row) * w_usize * 4;
-            let row_bytes = w_usize * 4;
-            output[dst_start..dst_start + row_bytes]
-                .copy_from_slice(&raw[src_start..src_start + row_bytes]);
-        }
-    }
-
-    let out_img = image::RgbaImage::from_raw(w, h, output)
+    let out_img = image::RgbaImage::from_raw(w, h, raw)
         .ok_or_else(|| "failed to create output image".to_string())?;
     out_img.save(path).map_err(|e| format!("save: {e}"))?;
     Ok(())
 }
 
 /// 下载单张图片（断点续传：文件已存在且非空则跳过）
+#[allow(clippy::too_many_arguments)]
 async fn download_one(
     client: &reqwest::Client,
     retry_config: &RetryConfig,
-    semaphore: &Arc<Semaphore>,
+    net_semaphore: &Arc<Semaphore>,
+    decode_semaphore: Option<&Arc<Semaphore>>,
     save_dir: &str,
     scramble_id: u64,
     aid: u64,
     img: &ImageEntry,
 ) -> Result<(), String> {
-    let _permit = semaphore
-        .acquire()
-        .await
-        .map_err(|e| format!("semaphore: {e}"))?;
-
     let path = format!("{save_dir}/{}", img.filename);
 
     // 断点续传：已存在且非空 → 跳过
@@ -121,15 +133,32 @@ async fn download_one(
             .map_err(|e| format!("mkdir: {e}"))?;
     }
 
-    let bytes = fetch_with_retry(client, &img.url, retry_config)
-        .await
-        .map_err(|e| e.to_string())?;
+    // 阶段 1：网络下载（受 net_semaphore 限制，IO-bound，内存小）
+    let bytes = {
+        let _net_permit = net_semaphore
+            .acquire()
+            .await
+            .map_err(|e| format!("semaphore: {e}"))?;
+        fetch_with_retry(client, &img.url, retry_config)
+            .await
+            .map_err(|e| e.to_string())?
+    }; // ← net_permit 在此释放
 
     // 封面等无需反混淆的图片直接保存
     if img.no_descramble {
         std::fs::write(&path, &bytes).map_err(|e| format!("write: {e}"))?;
         return Ok(());
     }
+
+    // 阶段 2：反混淆+写盘（受 decode_semaphore 限制，CPU-bound，内存大）
+    let _decode_permit = match decode_semaphore {
+        Some(sem) => Some(
+            sem.acquire()
+                .await
+                .map_err(|e| format!("decode semaphore: {e}"))?,
+        ),
+        None => None, // 0 = 不限制
+    };
 
     // MD5 计算用不含后缀的文件名（与 jmcomic JmImageDetail.img_file_name 一致）
     let stem = img
@@ -157,7 +186,8 @@ async fn download_one(
 pub async fn download_chapter(
     client: &reqwest::Client,
     retry_config: &RetryConfig,
-    semaphore: &Arc<Semaphore>,
+    net_semaphore: &Arc<Semaphore>,
+    decode_semaphore: Option<&Arc<Semaphore>>,
     save_dir: &str,
     scramble_id: u64,
     aid: u64,
@@ -172,18 +202,27 @@ pub async fn download_chapter(
     };
     let mut done = 0u32;
 
+    // 将 Option<&Arc<Semaphore>> 转为 Option<Arc<Semaphore>> 以便在闭包中 clone
+    let decode_sem = decode_semaphore.cloned();
+    let net_sem = net_semaphore.clone();
+
     let mut futures = stream::iter(images.iter().cloned())
-        .map(|img| async move {
-            download_one(
-                client,
-                retry_config,
-                semaphore,
-                save_dir,
-                scramble_id,
-                aid,
-                &img,
-            )
-            .await
+        .map(|img| {
+            let net_sem = net_sem.clone();
+            let decode_sem = decode_sem.clone();
+            async move {
+                download_one(
+                    client,
+                    retry_config,
+                    &net_sem,
+                    decode_sem.as_ref(),
+                    save_dir,
+                    scramble_id,
+                    aid,
+                    &img,
+                )
+                .await
+            }
         })
         .buffer_unordered(concurrency.max(1));
 
@@ -205,6 +244,51 @@ pub async fn download_chapter(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 参考实现（非原地，与旧算法逻辑一致），用于与原地算法交叉验证
+    fn reference_descramble(raw: &[u8], w: usize, h: usize, num: usize) -> Vec<u8> {
+        let row_bytes = w * 4;
+        let over = h % num;
+        let slice_h = h / num;
+        let mut output = vec![0u8; w * h * 4];
+        for i in 0..num {
+            let move_h = if i == 0 { slice_h + over } else { slice_h };
+            let y_src = if i == 0 {
+                h - slice_h - over
+            } else {
+                h - slice_h * (i + 1) - over
+            };
+            let y_dst = if i == 0 { 0 } else { slice_h * i + over };
+            for row in 0..move_h {
+                let s = (y_src + row) * row_bytes;
+                let d = (y_dst + row) * row_bytes;
+                output[d..d + row_bytes].copy_from_slice(&raw[s..s + row_bytes]);
+            }
+        }
+        output
+    }
+
+    #[test]
+    fn test_in_place_matches_reference() {
+        // 覆盖：整除/非整除高度、极端 num、over=0、slice_h=0
+        let cases: [(usize, usize, usize); 6] = [
+            (100, 160, 16),
+            (73, 101, 7),
+            (64, 64, 2),
+            (50, 137, 20),
+            (32, 60, 10),
+            (16, 7, 20),
+        ];
+        for (w, h, num) in cases {
+            let raw: Vec<u8> = (0..w * h * 4)
+                .map(|i| i.wrapping_mul(31).wrapping_add(7) as u8)
+                .collect();
+            let expected = reference_descramble(&raw, w, h, num);
+            let mut actual = raw.clone();
+            descramble_in_place(&mut actual, w, h, num);
+            assert_eq!(actual, expected, "mismatch: w={w} h={h} num={num}");
+        }
+    }
 
     #[test]
     fn test_calc_scramble_num_known_value() {

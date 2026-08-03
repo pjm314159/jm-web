@@ -63,6 +63,8 @@ pub struct TaskState {
 pub struct AppState {
     pub client: reqwest::Client,
     pub semaphore: Arc<Semaphore>,
+    /// 反混淆并发信号量；None 表示不限制
+    pub decode_semaphore: Option<Arc<Semaphore>>,
     pub tasks: DashMap<String, TaskState>,
     pub config: Config,
     pub start_time: Instant,
@@ -94,6 +96,11 @@ impl AppState {
         Self {
             client,
             semaphore: Arc::new(Semaphore::new(config.max_concurrency)),
+            decode_semaphore: if config.decode_concurrency == 0 {
+                None
+            } else {
+                Some(Arc::new(Semaphore::new(config.decode_concurrency)))
+            },
             tasks: DashMap::new(),
             config: config.clone(),
             start_time: Instant::now(),
@@ -155,6 +162,7 @@ pub async fn execute_download(state: Arc<AppState>, req: DownloadRequest) {
         &state.client,
         &retry_config,
         &state.semaphore,
+        state.decode_semaphore.as_ref(),
         &req.save_dir,
         scramble_id,
         aid,
@@ -172,8 +180,9 @@ pub async fn execute_download(state: Arc<AppState>, req: DownloadRequest) {
                 if let Some(url) = &callback_url {
                     let url = url.clone();
                     let tid2 = tid.clone();
+                    let client = state_clone.client.clone();
                     tokio::spawn(async move {
-                        send_progress(&url, &tid2, done, total, &[], "downloading").await;
+                        send_progress(&client, &url, &tid2, done, total, &[], "downloading").await;
                     });
                 }
             }
@@ -212,6 +221,7 @@ pub async fn execute_download(state: Arc<AppState>, req: DownloadRequest) {
             "failed"
         };
         send_progress(
+            &state.client,
             url,
             &task_id,
             result.success,

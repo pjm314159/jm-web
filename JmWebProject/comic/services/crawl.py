@@ -130,51 +130,54 @@ def submit_crawl(jm_type: str, jm_id: str) -> dict:
 
 
 def _submit_album(crawl_id: str, jm_id: str) -> dict:
-    """整本下载：批量获取元数据（单客户端连接复用）→ 逐章提交 Rust。"""
-    # 第一次请求获取本子详情（拿 episode_list）
+    """整本下载（原子性：先完成所有网络读取，再统一写入 DB/Rust/Redis）。"""
+    # ─── Phase 1: READ（纯网络读取，失败不落库） ───
     album_detail = jm_sync.fetch_album_detail(jm_id)
     episodes = list(getattr(album_detail, "episode_list", []))
     if not episodes:
-        album_obj = _save_album(album_detail, jm_id)
-        _save_crawl_info(crawl_id, jm_id, "album", [], len(episodes))
         return {"crawl_id": crawl_id, "chapters": 0, "message": "该本子无章节"}
 
-    # 筛选需要获取详情的章节（未下载的）
-    album_obj = _save_album(album_detail, jm_id)
-    pending_pids = []
+    # 确定待下载章节（查 DB 已下载状态，只读）
     ep_map = {}  # p_id -> (p_index, p_name)
+    all_pids = []
     for ep in episodes:
         p_id, p_index, p_name = ep[0], ep[1], ep[2]
         if not p_name:
             p_name = p_index
         ep_map[p_id] = (p_index, p_name)
-        photo_obj = _get_or_create_photo(album_obj, p_id, p_index, p_name)
-        if not photo_obj.is_downloaded:
-            pending_pids.append(p_id)
+        all_pids.append(p_id)
 
-    # 批量获取章节详情（复用同一客户端连接）
+    downloaded_pids = set(
+        Photo.objects.filter(jm_id__in=all_pids, is_downloaded=True)
+        .values_list("jm_id", flat=True)
+    )
+    pending_pids = [pid for pid in all_pids if pid not in downloaded_pids]
+
+    # 并发获取章节详情（全局客户端 + Semaphore 限流）
     if pending_pids:
-        _, photo_details = jm_sync.fetch_album_with_photos(jm_id, pending_pids)
+        photo_details = jm_sync.fetch_photos_concurrent(pending_pids)
     else:
         photo_details = {}
+
+    # ─── Phase 2: WRITE（所有读取成功后才写入） ───
+    album_obj = _save_album(album_detail, jm_id)
 
     safe_album = sanitize_filename(album_obj.name)
     task_ids = []
     submitted = len(episodes) - len(pending_pids)  # 已下载的计入 submitted
     cover_url = jm_sync.get_album_cover_url(jm_id)
-    cover_added = False  # 封面只加入首章任务
+    cover_added = False
 
     for p_id in pending_pids:
         photo_detail = photo_details.get(p_id)
         if photo_detail is None:
-            logger.warning("获取章节详情失败 %s", p_id)
+            logger.warning("章节详情获取失败，跳过: %s", p_id)
             continue
 
         images = [{"url": img.download_url, "filename": img.filename} for img in photo_detail]
         if not images:
             continue
 
-        # 首章任务附带封面下载（无需反混淆）
         if not cover_added:
             images.append({"url": cover_url, "filename": "cover.png", "no_descramble": True})
             cover_added = True
@@ -184,7 +187,7 @@ def _submit_album(crawl_id: str, jm_id: str) -> dict:
         safe_photo = sanitize_filename(photo_obj.name) or str(p_index)
         save_dir = os.path.join(settings.MEDIA_ROOT, "images", "jmcomic", safe_album, safe_photo)
         scramble_id = str(getattr(photo_detail, "scramble_id", "220980"))
-        aid = str(p_id)  # 反混淆用 photo_id，非 album_id
+        aid = str(p_id)
         task_id = f"{crawl_id}-{p_id}"
 
         if _submit_to_rust(task_id, save_dir, scramble_id, aid, images):
@@ -193,8 +196,6 @@ def _submit_album(crawl_id: str, jm_id: str) -> dict:
 
     # 存 Redis 供状态查询
     _save_crawl_info(crawl_id, jm_id, "album", task_ids, len(episodes))
-
-    # 清缓存
     _clear_caches()
 
     return {
@@ -206,28 +207,30 @@ def _submit_album(crawl_id: str, jm_id: str) -> dict:
 
 
 def _submit_photo(crawl_id: str, jm_id: str) -> dict:
-    """单章下载。"""
+    """单章下载（原子性：先完成所有网络读取，再写入）。"""
+    # ─── Phase 1: READ ───
     photo_detail = jm_sync.fetch_photo_detail(jm_id, False)
     target_album_id = photo_detail.album_id
-
     album_detail = jm_sync.fetch_album_detail(target_album_id)
-    album_obj = _save_album(album_detail, target_album_id)
 
+    images = [{"url": img.download_url, "filename": img.filename} for img in photo_detail]
+    cover_url = jm_sync.get_album_cover_url(target_album_id)
+
+    # ─── Phase 2: WRITE ───
+    album_obj = _save_album(album_detail, target_album_id)
     photo_obj = Photo.objects.update_or_create(
         jm_id=jm_id,
         defaults={"album": album_obj, "name": photo_detail.name.strip(), "sort_index": 0},
     )[0]
 
-    images = [{"url": img.download_url, "filename": img.filename} for img in photo_detail]
-    # 附带封面下载（无需反混淆）
     if not album_obj.cover_path:
-        cover_url = jm_sync.get_album_cover_url(target_album_id)
         images.append({"url": cover_url, "filename": "cover.png", "no_descramble": True})
+
     safe_album = sanitize_filename(album_obj.name)
     safe_photo = sanitize_filename(photo_obj.name) or jm_id
     save_dir = os.path.join(settings.MEDIA_ROOT, "images", "jmcomic", safe_album, safe_photo)
     scramble_id = str(getattr(photo_detail, "scramble_id", "220980"))
-    aid = str(jm_id)  # 反混淆用 photo_id，非 album_id
+    aid = str(jm_id)
     task_id = f"{crawl_id}-{jm_id}"
 
     ok = _submit_to_rust(task_id, save_dir, scramble_id, aid, images)
@@ -283,7 +286,7 @@ def get_crawl_status(crawl_id: str) -> dict:
     else:
         state = "DOWNLOADING"
 
-    return {
+    result = {
         "crawl_id": crawl_id,
         "state": state,
         "progress": {
@@ -293,6 +296,15 @@ def get_crawl_status(crawl_id: str) -> dict:
             "images_total": total_images,
         },
     }
+
+    # 完成时附带本地 Album DB 主键，供前端跳转本地详情页
+    if state in ("SUCCESS", "PARTIAL"):
+        jm_id = info.get("jm_id")
+        album = Album.objects.filter(jm_id=jm_id).only("id").first()
+        if album:
+            result["album_id"] = album.id
+
+    return result
 
 
 # ------------------------------------------------------------------

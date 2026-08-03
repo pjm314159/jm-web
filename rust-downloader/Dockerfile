@@ -1,7 +1,8 @@
 # ---- Build stage ----
 FROM rust:1.88-alpine AS builder
 
-RUN apk add --no-cache musl-dev pkgconfig
+RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories \
+    && apk add --no-cache musl-dev pkgconfig
 
 WORKDIR /app
 # 使用字节跳动 rsproxy 镜像加速 crates.io
@@ -13,7 +14,8 @@ RUN cargo build --release
 # ---- Runtime stage ----
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates wget
+RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories \
+    && apk add --no-cache ca-certificates wget
 
 COPY --from=builder /app/target/release/jm-downloader /usr/local/bin/jm-downloader
 

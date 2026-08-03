@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { AxiosError } from 'axios'
@@ -53,6 +53,15 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
   )
 }
 
+/** 书本图标（复用 SearchDetailPage 样式）。 */
+function BookIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+    </svg>
+  )
+}
+
 /** 状态提示框（成功 / 失败 / 等待）。 */
 function StatusBox({
   tone,
@@ -88,6 +97,8 @@ export default function CrawlPage() {
   const [input, setInput] = useState('')
   const [taskId, setTaskId] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [phase, setPhase] = useState<'complete' | 'detail'>('complete')
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const mutation = useMutation({
     mutationFn: () => submitCrawl(input.trim()),
@@ -128,6 +139,17 @@ export default function CrawlPage() {
   const isSuccess = state === 'SUCCESS' || state === 'PARTIAL'
   const isFailure = state === 'FAILED'
   const showStatus = !!submitError || !!taskId
+
+  // 两阶段动效：下载完成 → 2s 后切换为「查看本地详情」按钮
+  useEffect(() => {
+    if (isSuccess) {
+      setPhase('complete')
+      timerRef.current = setTimeout(() => setPhase('detail'), 2000)
+      return () => {
+        if (timerRef.current) clearTimeout(timerRef.current)
+      }
+    }
+  }, [isSuccess])
 
   return (
     <div className="relative z-10 mx-auto mt-24 w-full max-w-xl px-4 pb-16 sm:px-6">
@@ -197,11 +219,44 @@ export default function CrawlPage() {
             )}
 
             {!submitError && isSuccess && (
-              <StatusBox
-                tone="success"
-                title={state === 'PARTIAL' ? '部分章节下载失败' : '任务已完成'}
-                detail="可前往藏书阁查看下载结果。"
-              />
+              <div className="relative">
+                {/* 阶段一：下载完成提示 */}
+                <div
+                  className={`transition-all duration-300 ${
+                    phase === 'complete'
+                      ? 'scale-100 opacity-100'
+                      : 'pointer-events-none absolute inset-0 scale-95 opacity-0'
+                  }`}
+                >
+                  <StatusBox
+                    tone="success"
+                    title={state === 'PARTIAL' ? '部分章节下载失败' : '下载完成 ✓'}
+                    detail={state === 'PARTIAL' ? '可前往藏书阁查看下载结果。' : undefined}
+                  />
+                </div>
+                {/* 阶段二：查看本地详情按钮（复用 SearchDetailPage 样式） */}
+                <div
+                  className={`transition-all duration-300 ${
+                    phase === 'detail'
+                      ? 'scale-100 opacity-100'
+                      : 'pointer-events-none absolute inset-0 scale-95 opacity-0'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.open(
+                        taskStatus?.album_id ? `/library/${taskStatus.album_id}` : '/library',
+                        '_blank',
+                      )
+                    }
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200/50 bg-emerald-50/40 px-6 py-3 text-sm font-semibold text-emerald-600 shadow-md backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:border-emerald-300/60 hover:shadow-lg active:scale-95 dark:border-emerald-500/20 dark:bg-emerald-950/20 dark:text-emerald-400"
+                  >
+                    <BookIcon className="h-4 w-4" />
+                    查看本地详情
+                  </button>
+                </div>
+              </div>
             )}
 
             {!submitError && isFailure && (

@@ -16,6 +16,8 @@ pub struct Config {
     pub task_retention_secs: u64,
     /// 最大排队任务数，超过后拒绝新任务（默认 200）
     pub max_queued_tasks: usize,
+    /// 反混淆最大并发数（默认 10，0 = 不限制）
+    pub decode_concurrency: usize,
 }
 
 impl Config {
@@ -34,6 +36,7 @@ impl Config {
                 .parse()
                 .unwrap_or(3600),
             max_queued_tasks: env_or("MAX_QUEUED_TASKS", "200").parse().unwrap_or(200),
+            decode_concurrency: env_or("DECODE_CONCURRENCY", "10").parse().unwrap_or(10),
         }
     }
 }
