@@ -65,7 +65,7 @@ export const WasmComicImage = memo(function WasmComicImage({
     <div
       data-vimg-idx={slotIdx}
       data-reader-index={index}
-      className="relative mx-auto w-fit"
+      className="relative mx-auto w-fit max-w-full"
       style={status === 'done' ? undefined : { minHeight: status === 'idle' ? '60vh' : 200 }}
     >
       {/* idle：轻量占位 */}
@@ -97,10 +97,10 @@ export const WasmComicImage = memo(function WasmComicImage({
         </div>
       )}
 
-      {/* done：canvas 渲染 */}
+      {/* done：canvas 渲染（max-w-full + h-auto：超宽图等比缩放铺满屏宽） */}
       <canvas
         ref={canvasRef}
-        className="block"
+        className="block h-auto max-w-full"
         style={status === 'done' ? undefined : { display: 'none' }}
       />
     </div>
