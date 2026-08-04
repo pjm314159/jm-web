@@ -42,6 +42,11 @@ def search_tag(query: str, page: int = 1):
     return run_on_loop(jm_async.search_tag(query, page))
 
 
+def fetch_album_comments(album_id: str, page: int = 1):
+    """获取本子评论分页（JmAlbumCommentPage，含嵌套 replies）。"""
+    return run_on_loop(jm_async.fetch_album_comments(album_id, page))
+
+
 def get_album_cover_url(album_id: str) -> str:
     """封面 URL（纯计算，无网络请求）。"""
     return JmcomicText.get_album_cover_url(album_id)

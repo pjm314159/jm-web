@@ -45,6 +45,11 @@ urlpatterns = [
         name="search_album_episodes",
     ),
     path(
+        "search/albums/<str:jm_id>/comments/",
+        views.SearchAlbumCommentsView.as_view(),
+        name="search_album_comments",
+    ),
+    path(
         "search/photos/<str:photo_id>/images/",
         views.SearchPhotoImagesView.as_view(),
         name="search_photo_images",

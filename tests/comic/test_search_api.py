@@ -166,3 +166,59 @@ class TestSearchPhotoImages:
         ):
             resp = auth_client.get(reverse("search_photo_images", args=["67890"]))
         assert resp.status_code == 502
+
+
+class FakeComment:
+    def __init__(self, comment_id="c1", replies=None):
+        self.comment_id = comment_id
+        self.user_id = "u1"
+        self.username = "user1"
+        self.nickname = "昵称1"
+        self.content = "评论内容"
+        self.created_at = "1700000000"
+        self.likes = 3
+        self.is_spoiler = False
+        self.replies = replies or []
+
+
+class FakeCommentPage:
+    def __init__(self):
+        self.content = [FakeComment(replies=[FakeComment(comment_id="r1")])]
+        self.total = 15
+        self.page_count = 2
+
+
+class TestSearchAlbumComments:
+    def test_comments(self, auth_client):
+        with patch(
+            "comic.services.search.jm_sync.fetch_album_comments", return_value=FakeCommentPage()
+        ):
+            resp = auth_client.get(reverse("search_album_comments", args=["111"]))
+        assert resp.status_code == 200
+        assert resp.data["total"] == 15
+        assert resp.data["has_next"] is True
+        assert resp.data["comments"][0]["content"] == "评论内容"
+        assert resp.data["comments"][0]["replies"][0]["comment_id"] == "r1"
+
+    def test_comments_page_param(self, auth_client):
+        with patch(
+            "comic.services.search.jm_sync.fetch_album_comments", return_value=FakeCommentPage()
+        ) as m:
+            resp = auth_client.get(reverse("search_album_comments", args=["111"]), {"page": "2"})
+        m.assert_called_once_with("111", 2)
+        assert resp.status_code == 200
+
+    def test_comments_cache_hit(self, auth_client):
+        with patch(
+            "comic.services.search.jm_sync.fetch_album_comments", return_value=FakeCommentPage()
+        ) as m:
+            auth_client.get(reverse("search_album_comments", args=["111"]))
+            auth_client.get(reverse("search_album_comments", args=["111"]))
+        assert m.call_count == 1  # 第二次命中缓存
+
+    def test_comments_502(self, auth_client):
+        with patch(
+            "comic.services.search.jm_sync.fetch_album_comments", side_effect=RuntimeError("net")
+        ):
+            resp = auth_client.get(reverse("search_album_comments", args=["111"]))
+        assert resp.status_code == 502

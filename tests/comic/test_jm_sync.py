@@ -37,6 +37,11 @@ class TestSyncBridge:
             assert jm_sync.search_tag("t", 1) == "page"
         m.assert_awaited_once_with("t", 1)
 
+    def test_fetch_album_comments(self):
+        with patch.object(jm_async, "fetch_album_comments", AsyncMock(return_value="cp")) as m:
+            assert jm_sync.fetch_album_comments("111", 2) == "cp"
+        m.assert_awaited_once_with("111", 2)
+
 
 class TestPureCompute:
     def test_get_album_cover_url(self):

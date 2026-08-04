@@ -320,6 +320,22 @@ class SearchAlbumEpisodesView(APIView):
         return Response(data)
 
 
+class SearchAlbumCommentsView(APIView):
+    """S5：在线评论分页（含嵌套回复，前端滚动加载）。"""
+
+    def get(self, request, jm_id):
+        try:
+            page = int(request.GET.get("page", 1))
+        except ValueError:
+            page = 1
+        try:
+            data = search.get_comments(jm_id, page=page)
+        except Exception as e:
+            logger.exception("获取在线评论失败")
+            return Response({"error": f"获取评论失败: {e!s}"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(data)
+
+
 class SearchPhotoImagesView(APIView):
     """S4：在线阅读器（返回 {url, num} 列表，前端做反混淆拼接渲染）。"""
 

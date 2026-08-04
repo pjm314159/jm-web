@@ -160,6 +160,15 @@ async def search_tag(query: str, page: int = 1):
         raise map_jm_exception(e) from e
 
 
+async def fetch_album_comments(album_id: str, page: int = 1):
+    """获取本子评论分页（JmAlbumCommentPage，含嵌套 replies）。"""
+    client = await _get_client()
+    try:
+        return await client.album_pagination(album_id, page)
+    except JmcomicException as e:
+        raise map_jm_exception(e) from e
+
+
 async def fetch_photos_concurrent(photo_ids: list[str], max_concurrency: int = 6) -> dict:
     """并发获取多个章节详情（Semaphore 限流，复用全局客户端）。
 

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 IMAGES_PER_PAGE = 300
 SEARCH_CACHE_TTL = 120
 DETAIL_CACHE_TTL = 120  # 在线详情/章节列表缓存 120s
+COMMENT_CACHE_TTL = 60  # 评论分页缓存 60s
 
 
 def _episode_to_dict(ep) -> dict:
@@ -170,6 +171,41 @@ def get_episode_list(jm_id: str) -> dict:
         "episode_list": [_episode_to_dict(ep) for ep in album_detail.episode_list],
     }
     cache.set(cache_key, result, timeout=DETAIL_CACHE_TTL)
+    return result
+
+
+def _comment_to_dict(comment) -> dict:
+    """把 JmAlbumComment 转为前端友好的 dict（递归含嵌套回复）。"""
+    return {
+        "comment_id": comment.comment_id,
+        "user_id": comment.user_id,
+        "username": comment.username,
+        "nickname": comment.nickname,
+        "content": comment.content,
+        "created_at": comment.created_at,
+        "likes": comment.likes,
+        "is_spoiler": comment.is_spoiler,
+        "replies": [_comment_to_dict(r) for r in comment.replies],
+    }
+
+
+def get_comments(jm_id: str, page: int = 1) -> dict:
+    """S5：在线评论分页（含嵌套回复），缓存 60s。"""
+    cache_key = f"jmw-album-comments-{jm_id}-{page}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    comment_page = jm_sync.fetch_album_comments(jm_id, page)
+    result = {
+        "jm_id": jm_id,
+        "page": page,
+        "total": comment_page.total,
+        "page_count": comment_page.page_count,
+        "has_next": comment_page.page_count is not None and page < comment_page.page_count,
+        "comments": [_comment_to_dict(c) for c in comment_page.content],
+    }
+    cache.set(cache_key, result, timeout=COMMENT_CACHE_TTL)
     return result
 
 

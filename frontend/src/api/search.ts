@@ -125,3 +125,39 @@ export async function getSearchPhotoImages(
   })
   return data
 }
+
+/* ─── S5：在线评论 ─────────────────────────── */
+
+/** 单条评论（含嵌套回复）。 */
+export interface AlbumComment {
+  comment_id: string | null
+  user_id: string | null
+  username: string
+  nickname: string
+  content: string
+  created_at: string | number | null
+  likes: number | null
+  is_spoiler: boolean
+  replies: AlbumComment[]
+}
+
+/** S5 评论分页响应。 */
+export interface AlbumCommentsResponse {
+  jm_id: string
+  page: number
+  total: number | null
+  page_count: number | null
+  has_next: boolean
+  comments: AlbumComment[]
+}
+
+/** S5：在线评论分页（GET /api/search/albums/:jmId/comments/）。 */
+export async function getSearchAlbumComments(
+  jmId: string,
+  page = 1,
+): Promise<AlbumCommentsResponse> {
+  const { data } = await apiClient.get<AlbumCommentsResponse>(`/search/albums/${jmId}/comments/`, {
+    params: { page },
+  })
+  return data
+}

@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { getSearchAlbumEpisodes, getSearchPhotoImages } from '../api/search'
 import type { SearchReaderImage } from '../api/search'
+import CommentSection from '../components/CommentSection'
 import { setPageTitle } from '../lib/usePageTitle'
 import { WasmComicImage } from '../components/reader/WasmComicImage'
 import { useVirtualImages } from '../components/reader/useVirtualImages'
@@ -38,6 +39,23 @@ import { readerBgClass, useReaderSettings } from '../components/reader/useReader
 /** 稳定空数组引用，避免 useVirtualImages 无限循环 */
 const EMPTY_IMAGES: SearchReaderImage[] = []
 
+/** 评论入口图标（右侧浮动按钮） */
+function CommentBubbleIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.444 3 12c0 2.104.859 4.023 2.273 5.48.432.447.74 1.04.586 1.641a4.483 4.483 0 01-.923 1.785A5.969 5.969 0 006 21c1.282 0 2.47-.402 3.445-1.087.81.22 1.668.337 2.555.337z" />
+    </svg>
+  )
+}
+
+function CloseIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  )
+}
+
 export default function ReaderOnlinePage({
   isDark,
   onToggleTheme,
@@ -54,6 +72,9 @@ export default function ReaderOnlinePage({
   const [panelOpen, setPanelOpen] = useState(false)
   const [pageOpen, setPageOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  // 首次打开后置 true：关闭后保留已加载评论，避免重复请求
+  const [commentsTouched, setCommentsTouched] = useState(false)
   const { bg, setBg } = useReaderSettings()
 
   /* S4：本章图片（章内分页） */
@@ -117,10 +138,11 @@ export default function ReaderOnlinePage({
 
   /** 点击图片流：优先收起弹出面板，否则切换工具栏 */
   const handleStreamClick = () => {
-    if (panelOpen || pageOpen || settingsOpen) {
+    if (panelOpen || pageOpen || settingsOpen || commentsOpen) {
       setPanelOpen(false)
       setPageOpen(false)
       setSettingsOpen(false)
+      setCommentsOpen(false)
     } else {
       setBarsVisible((v) => !v)
     }
@@ -283,6 +305,58 @@ export default function ReaderOnlinePage({
           </button>
         </div>
       </ReaderNavShell>
+
+      {/* 评论入口：右侧浮动 SVG，随导航栏同显隐，点击召唤评论抽屉 */}
+      <button
+        type="button"
+        aria-label="查看评论"
+        onClick={() => {
+          setCommentsOpen(true)
+          setCommentsTouched(true)
+        }}
+        className={`fixed right-4 top-1/2 z-40 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 bg-white/50 text-slate-600 shadow-lg backdrop-blur-2xl transition-all duration-300 ease-out hover:scale-110 hover:border-indigo-300/60 hover:text-indigo-600 active:scale-95 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:text-indigo-400 ${
+          barsVisible && !commentsOpen
+            ? 'translate-x-0 opacity-100'
+            : 'pointer-events-none translate-x-16 opacity-0'
+        }`}
+      >
+        <CommentBubbleIcon className="h-5 w-5" />
+      </button>
+
+      {/* 评论抽屉（仅在线阅读页，依赖 S4 返回的 album_id） */}
+      <aside
+        className={`fixed inset-y-0 right-0 z-50 w-full max-w-lg transform transition-transform duration-300 ease-out ${
+          commentsOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="flex h-full flex-col border-l border-white/30 bg-white/70 shadow-2xl backdrop-blur-2xl dark:border-white/10 dark:bg-slate-900/80">
+          {/* 抽屉头 */}
+          <div className="flex shrink-0 items-center justify-between border-b border-white/30 px-5 py-3 dark:border-white/10">
+            <span className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-100">
+              <CommentBubbleIcon className="h-4 w-4 text-indigo-500" />
+              评论区
+            </span>
+            <button
+              type="button"
+              aria-label="关闭评论区"
+              onClick={() => setCommentsOpen(false)}
+              className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-500 transition-all duration-300 hover:bg-white/50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-white"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          </div>
+          {/* 抽屉内容（首次打开后保持挂载，保留已加载评论；隐藏自带标题避免与抽屉头重复） */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {commentsTouched && albumId ? (
+              <CommentSection jmId={albumId} showHeader={false} />
+            ) : (
+              <div className="py-16 text-center text-sm text-slate-400 dark:text-slate-500">
+                章节数据加载中…
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
     </div>
   )
 }

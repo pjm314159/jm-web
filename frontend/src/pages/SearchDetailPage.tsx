@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { getCrawlTaskStatus, submitCrawl } from '../api/crawl'
 import { getSearchAlbumDetail } from '../api/search'
+import CommentSection from '../components/CommentSection'
 import { setPageTitle } from '../lib/usePageTitle'
 
 /* ─── 图标 ──────────────────────────────────────────────── */
@@ -319,7 +320,7 @@ export default function SearchDetailPage() {
           >
             <button
               type="button"
-              onClick={() => window.open(`/library/${effectiveLocalId}`, '_blank')}
+              onClick={() => navigate(`/library/${effectiveLocalId}`)}
               className="flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200/50 bg-emerald-50/40 px-6 py-3 text-sm font-semibold text-emerald-600 shadow-md backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:border-emerald-300/60 hover:shadow-lg active:scale-95 dark:border-emerald-500/20 dark:bg-emerald-950/20 dark:text-emerald-400"
             >
               <BookIcon className="h-4 w-4" />
@@ -452,6 +453,9 @@ export default function SearchDetailPage() {
           </section>
         </main>
       </div>
+
+      {/* ─── 评论区（底部滚动加载） ─── */}
+      <CommentSection jmId={album.jm_id} />
     </div>
   )
 }

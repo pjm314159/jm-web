@@ -102,6 +102,11 @@ class TestQueryFunctions:
         assert await jm_async.search_tag("t", 1) == "page"
         fake_client.search_tag.assert_awaited_once_with(search_query="t", page=1)
 
+    async def test_fetch_album_comments(self, fake_client):
+        fake_client.album_pagination = AsyncMock(return_value="comments")
+        assert await jm_async.fetch_album_comments("111", 2) == "comments"
+        fake_client.album_pagination.assert_awaited_once_with("111", 2)
+
     async def test_fetch_photos_concurrent(self, fake_client):
         fake_client.get_photo_detail = AsyncMock(side_effect=lambda pid, _s: f"detail-{pid}")
         result = await jm_async.fetch_photos_concurrent(["1", "2"], max_concurrency=2)
