@@ -148,7 +148,7 @@ export default function LibraryDetailPage() {
     mutationFn: () => deleteAlbum(Number(id)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['library'] })
-      navigate('/library')
+      navigate(-1)
     },
   })
 
