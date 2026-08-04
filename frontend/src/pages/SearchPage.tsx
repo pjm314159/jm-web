@@ -170,7 +170,7 @@ function SearchBar({ searchType, inputValue, onTypeChange, onInputChange, onSubm
       {/* 搜索类型下拉框（毛玻璃自定义，可扩展）*/}
       <TypeDropdown value={searchType} onChange={onTypeChange} />
 
-      {/* 输入框 */}
+      {/* 输入框（min-w-0：允许 flex 压缩，小屏不会把搜索按钮挤出屏幕） */}
       <input
         type="text"
         value={inputValue}
@@ -178,7 +178,7 @@ function SearchBar({ searchType, inputValue, onTypeChange, onInputChange, onSubm
         placeholder="搜索您想看的..."
         autoComplete="off"
         spellCheck={false}
-        className="flex-1 bg-transparent px-3 py-2.5 text-base font-medium text-slate-800 placeholder-slate-400 outline-none dark:text-slate-100 dark:placeholder-slate-500"
+        className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-base font-medium text-slate-800 placeholder-slate-400 outline-none dark:text-slate-100 dark:placeholder-slate-500"
       />
 
       {/* 搜索按钮：毛玻璃底 + SVG 图标 */}
