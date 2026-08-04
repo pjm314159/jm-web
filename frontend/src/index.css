@@ -3,6 +3,13 @@
 /* Tailwind v4：启用基于 .dark class 的暗色模式（配合 ThemeProvider 切换 html.dark） */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* 视频元素禁用浏览器原生长按弹出（保存/下载），避免劫持长按倍速手势 */
+video {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* ─── 视频播放器控制栏按钮 ─── */
 .ctrl-btn {
   display: flex;

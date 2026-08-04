@@ -124,6 +124,9 @@ export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProp
   const progressRef = useRef<HTMLDivElement>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(null)
   const longPressTimer = useRef<ReturnType<typeof setTimeout>>(null)
+  /* 画面横向拖动调进度手势状态 */
+  const gestureRef = useRef({ startX: 0, baseTime: 0, active: false, moved: false })
+  const suppressClickRef = useRef(false)
 
   /* 播放状态 */
   const [playing, setPlaying] = useState(false)
@@ -147,6 +150,8 @@ export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProp
   /* 长按倍速 */
   const [longPressSpeed, setLongPressSpeed] = useState(false)
   const [toast, setToast] = useState('')
+  /* 拖动调进度指示：仅拖动过程中显示，松手立即消失 */
+  const [dragTime, setDragTime] = useState<string | null>(null)
 
   /* 选集 */
   const [currentEp, setCurrentEp] = useState(initialEp)
@@ -285,6 +290,48 @@ export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProp
     }
   }, [isWebFullscreen])
 
+  /* ─── 画面左右拖动调进度（触摸 + 鼠标） ─── */
+  const beginGesture = (clientX: number) => {
+    const v = videoRef.current
+    if (v && duration) gestureRef.current = { startX: clientX, baseTime: v.currentTime, active: true, moved: false }
+  }
+  const moveGesture = (clientX: number) => {
+    const g = gestureRef.current
+    const v = videoRef.current
+    if (!g.active || !v || !duration) return
+    const dx = clientX - g.startX
+    if (!g.moved && Math.abs(dx) < 12) return
+    if (!g.moved) {
+      g.moved = true
+      // 横向拖动判定为调进度：取消长按倍速，避免手势互相干扰
+      if (longPressTimer.current) clearTimeout(longPressTimer.current)
+      setDragging(true)
+    }
+    const width = containerRef.current?.clientWidth || window.innerWidth
+    const t = Math.max(0, Math.min(duration, g.baseTime + (dx / width) * duration))
+    v.currentTime = t; setCurrentTime(t)
+    setDragTime(`${formatTime(t)} / ${formatTime(duration)}`)
+  }
+  const endGesture = () => {
+    const g = gestureRef.current
+    if (g.active && g.moved) suppressClickRef.current = true // 拖动后抑制紧随的 click（避免误触播放/暂停）
+    setDragTime(null); g.active = false; g.moved = false
+  }
+  const handleVideoClick = (e: React.MouseEvent) => {
+    if (suppressClickRef.current) { suppressClickRef.current = false; e.preventDefault(); return }
+    togglePlay()
+  }
+  const handleVideoMouseDown = (e: React.MouseEvent) => {
+    startLongPress()
+    beginGesture(e.clientX)
+    const onMove = (ev: MouseEvent) => moveGesture(ev.clientX)
+    const onUp = () => {
+      endLongPress(); endGesture(); setDragging(false)
+      document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp)
+  }
+
   /* ─── 长按倍速 ─── */
   const startLongPress = () => {
     longPressTimer.current = setTimeout(() => {
@@ -341,6 +388,7 @@ export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProp
       }`}
       onMouseMove={resetHideTimer}
       onMouseLeave={() => { if (playing) setControlsVisible(false) }}
+      onContextMenu={(e) => e.preventDefault()}
     >
       <video
         ref={videoRef}
@@ -352,19 +400,23 @@ export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProp
         onEnded={handleEnded}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
-        onClick={togglePlay}
-        onTouchStart={startLongPress}
-        onTouchEnd={endLongPress}
-        onTouchCancel={endLongPress}
-        onMouseDown={startLongPress}
-        onMouseUp={endLongPress}
+        onClick={handleVideoClick}
+        onTouchStart={(e) => { startLongPress(); beginGesture(e.touches[0].clientX) }}
+        onTouchMove={(e) => moveGesture(e.touches[0].clientX)}
+        onTouchEnd={() => { endLongPress(); endGesture(); setDragging(false) }}
+        onTouchCancel={() => { endLongPress(); endGesture(); setDragging(false) }}
+        onMouseDown={handleVideoMouseDown}
+        style={{ touchAction: 'pan-y' }}
       />
+
+      {/* 拖动调进度指示（仅拖动时显示，视频顶部中央，松手立即消失） */}
+      {dragTime && (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-[60] -translate-x-1/2 rounded-full bg-black/75 px-5 py-2 font-mono text-sm font-bold text-white backdrop-blur-sm">{dragTime}</div>
+      )}
 
       {/* Toast */}
       {toast && (
-        <div className="pointer-events-none absolute left-1/2 top-[12%] z-50 -translate-x-1/2 rounded-full bg-black/75 px-5 py-2 text-sm font-bold text-white backdrop-blur-sm">
-          {toast}
-        </div>
+        <div className="pointer-events-none absolute left-1/2 top-[12%] z-50 -translate-x-1/2 rounded-full bg-black/75 px-5 py-2 text-sm font-bold text-white backdrop-blur-sm">{toast}</div>
       )}
 
       {/* 中央播放图标 */}
