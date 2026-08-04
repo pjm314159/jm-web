@@ -9,8 +9,8 @@ import { useAuthStore } from '../store/authStore'
  */
 
 type Accent = {
-  /** 标签文字颜色 */
-  text: string
+  /** 标签/链接文字颜色（叠加在图片上的亮色系） */
+  onImage: string
   /** 标签前的小圆点 */
   dot: string
   /** 悬停光晕 */
@@ -19,23 +19,23 @@ type Accent = {
 
 const ACCENTS: Record<string, Accent> = {
   indigo: {
-    text: 'text-indigo-600 dark:text-indigo-400',
-    dot: 'bg-indigo-500',
+    onImage: 'text-indigo-300',
+    dot: 'bg-indigo-400',
     glow: 'bg-indigo-400',
   },
   purple: {
-    text: 'text-purple-600 dark:text-purple-400',
-    dot: 'bg-purple-500',
+    onImage: 'text-purple-300',
+    dot: 'bg-purple-400',
     glow: 'bg-purple-400',
   },
   sky: {
-    text: 'text-sky-600 dark:text-sky-400',
-    dot: 'bg-sky-500',
+    onImage: 'text-sky-300',
+    dot: 'bg-sky-400',
     glow: 'bg-sky-400',
   },
   pink: {
-    text: 'text-pink-600 dark:text-pink-400',
-    dot: 'bg-pink-500',
+    onImage: 'text-pink-300',
+    dot: 'bg-pink-400',
     glow: 'bg-pink-400',
   },
 }
@@ -54,34 +54,32 @@ function HomeCard({ to, title, desc, label, image, accent, className = '' }: Hom
   return (
     <Link
       to={to}
-      className={`group relative flex flex-col overflow-hidden rounded-3xl border border-white/40 bg-white/40 shadow-xl backdrop-blur-md transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl dark:border-white/10 dark:bg-slate-800/50 ${className}`}
+      className={`group relative block h-64 overflow-hidden rounded-3xl border border-white/40 shadow-xl transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl dark:border-white/10 sm:h-72 ${className}`}
     >
-      {/* 封面图 */}
-      <div className="relative h-44 overflow-hidden sm:h-52">
-        <img
-          src={image}
-          alt={title}
-          className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-110"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-white/70 via-white/10 to-transparent dark:from-slate-800/80 dark:via-slate-800/10" />
-        <div
-          className={`absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-50 ${accent.glow}`}
-        />
-      </div>
+      {/* 封面图：铺满卡片（允许裁切），悬停轻微放大 */}
+      <img
+        src={image}
+        alt={title}
+        className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+      />
+      {/* 渐进式 overlay：自底向上渐变压暗，下方文字清晰可读、上方图片原样呈现 */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
+      {/* 悬停光晕 */}
+      <div
+        className={`absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-50 ${accent.glow}`}
+      />
 
-      {/* 内容区 */}
-      <div className="relative z-10 flex flex-1 flex-col p-6 sm:p-7">
+      {/* 文字直接叠在图片上（底部渐变保证可读性） */}
+      <div className="absolute inset-x-0 bottom-0 z-10 p-6 sm:p-7">
         <div
-          className={`mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] ${accent.text}`}
+          className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] ${accent.onImage}`}
         >
           <span className={`h-1.5 w-1.5 rounded-full ${accent.dot}`} />
           {label}
         </div>
-        <h3 className="mb-2 text-xl font-bold text-slate-900 dark:text-white sm:text-2xl">{title}</h3>
-        <p className="flex-1 text-sm leading-relaxed text-slate-600 dark:text-slate-300 sm:text-base">
-          {desc}
-        </p>
-        <div className={`mt-5 flex items-center gap-1.5 text-sm font-semibold ${accent.text}`}>
+        <h3 className="mb-1.5 text-xl font-bold text-white drop-shadow-sm sm:text-2xl">{title}</h3>
+        <p className="text-sm leading-relaxed text-white/75 sm:text-base">{desc}</p>
+        <div className={`mt-4 flex items-center gap-1.5 text-sm font-semibold ${accent.onImage}`}>
           进入
           <span className="transition-transform duration-300 group-hover:translate-x-1">→</span>
         </div>
