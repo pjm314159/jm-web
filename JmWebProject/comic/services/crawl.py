@@ -148,16 +148,12 @@ def _submit_album(crawl_id: str, jm_id: str) -> dict:
         all_pids.append(p_id)
 
     downloaded_pids = set(
-        Photo.objects.filter(jm_id__in=all_pids, is_downloaded=True)
-        .values_list("jm_id", flat=True)
+        Photo.objects.filter(jm_id__in=all_pids, is_downloaded=True).values_list("jm_id", flat=True)
     )
     pending_pids = [pid for pid in all_pids if pid not in downloaded_pids]
 
     # 并发获取章节详情（全局客户端 + Semaphore 限流）
-    if pending_pids:
-        photo_details = jm_sync.fetch_photos_concurrent(pending_pids)
-    else:
-        photo_details = {}
+    photo_details = jm_sync.fetch_photos_concurrent(pending_pids) if pending_pids else {}
 
     # ─── Phase 2: WRITE（所有读取成功后才写入） ───
     album_obj = _save_album(album_detail, jm_id)

@@ -45,11 +45,7 @@ class Command(BaseCommand):
             expected_abs = os.path.join(media_root, expected_rel)
 
             # 也检查 save_path 指向的路径（可能与预期路径不同）
-            actual_abs = (
-                os.path.join(media_root, photo.save_path)
-                if photo.save_path
-                else None
-            )
+            actual_abs = os.path.join(media_root, photo.save_path) if photo.save_path else None
 
             disk_count = _count_images(expected_abs)
             if actual_abs and actual_abs != expected_abs:
@@ -95,23 +91,25 @@ class Command(BaseCommand):
 
         # ─── 输出报告 ───
         self.stdout.write("")
-        self.stdout.write(self.style.WARNING(f"═══ A类: 磁盘有文件但DB未标记 ({len(type_a)} 条) ═══"))
+        self.stdout.write(
+            self.style.WARNING(f"═══ A类: 磁盘有文件但DB未标记 ({len(type_a)} 条) ═══")
+        )
         for photo, count, rel in type_a:
             self.stdout.write(
-                f"  [{photo.jm_id}] {photo.album.name} / {photo.name}"
-                f"  ({count} 张, 路径: {rel})"
+                f"  [{photo.jm_id}] {photo.album.name} / {photo.name}  ({count} 张, 路径: {rel})"
             )
 
         self.stdout.write("")
         self.stdout.write(self.style.WARNING(f"═══ B类: DB已标记但磁盘缺失 ({len(type_b)} 条) ═══"))
         for photo, sp in type_b:
             self.stdout.write(
-                f"  [{photo.jm_id}] {photo.album.name} / {photo.name}"
-                f"  (save_path: {sp})"
+                f"  [{photo.jm_id}] {photo.album.name} / {photo.name}  (save_path: {sp})"
             )
 
         self.stdout.write("")
-        self.stdout.write(self.style.WARNING(f"═══ C类: 磁盘有目录但DB无记录 ({len(type_c)} 条) ═══"))
+        self.stdout.write(
+            self.style.WARNING(f"═══ C类: 磁盘有目录但DB无记录 ({len(type_c)} 条) ═══")
+        )
         for album_dir, photo_dir, count in type_c:
             self.stdout.write(f"  {album_dir} / {photo_dir}  ({count} 张)")
 

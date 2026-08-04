@@ -7,7 +7,7 @@ dependencies = [
     "django>=5.0",
     "redis>=5.0",
     "django-redis>=5.4",
-    "jmcomic",
+    "jmcomic>=2.7.3",
     "pillow>=10.0",
     "gunicorn>=21.0",
     "python-dotenv>=1.0",
