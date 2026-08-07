@@ -13,6 +13,7 @@ import {
   checkAlbumUpdates,
   deleteAlbum,
   getAlbumDetail,
+  type Photo,
   type CheckUpdateResult,
 } from '../api/library'
 import { getCrawlTaskStatus, submitCrawl } from '../api/crawl'
@@ -129,6 +130,8 @@ export default function LibraryDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [updateMsg, setUpdateMsg] = useState('')
+  const [retryingPhotoId, setRetryingPhotoId] = useState<number | null>(null)
+  const [retryMsg, setRetryMsg] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 清理轮询
@@ -148,12 +151,12 @@ export default function LibraryDetailPage() {
     mutationFn: () => deleteAlbum(Number(id)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['library'] })
-      navigate(-1)
+      navigate('/library')
     },
   })
 
   const handleCheckUpdate = async () => {
-    if (!id) return
+    if (!id || checking || updating || retryingPhotoId !== null) return
     setChecking(true)
     setUpdateResult(null)
     try {
@@ -170,7 +173,7 @@ export default function LibraryDetailPage() {
   }
 
   const handleUpdateDownload = async () => {
-    if (!album?.jm_id || updating) return
+    if (!album?.jm_id || updating || retryingPhotoId !== null) return
     setUpdating(true)
     setUpdateMsg('提交更新任务…')
     try {
@@ -199,6 +202,42 @@ export default function LibraryDetailPage() {
     } catch {
       setUpdating(false)
       setUpdateMsg('提交失败，请稍后重试')
+    }
+  }
+
+  const handleRetryPhoto = async (photo: Photo) => {
+    if (!photo.jm_id || retryingPhotoId !== null || checking || updating) return
+    setRetryingPhotoId(photo.id)
+    setRetryMsg('正在重新下载该章节…')
+    try {
+      const res = await submitCrawl(`/photo/${photo.jm_id}`)
+      setRetryMsg('任务已提交，正在下载…')
+      if (pollRef.current) clearInterval(pollRef.current)
+      pollRef.current = setInterval(async () => {
+        try {
+          const st = await getCrawlTaskStatus(res.task_id)
+          if (st.state === 'SUCCESS' || st.state === 'PARTIAL') {
+            if (pollRef.current) clearInterval(pollRef.current)
+            setRetryingPhotoId(null)
+            setRetryMsg(
+              st.state === 'SUCCESS'
+                ? '章节重新下载完成'
+                : '章节部分图片下载失败，可再次重试'
+            )
+            queryClient.invalidateQueries({ queryKey: ['library-detail', id] })
+            queryClient.invalidateQueries({ queryKey: ['library'] })
+          } else if (st.state === 'FAILED') {
+            if (pollRef.current) clearInterval(pollRef.current)
+            setRetryingPhotoId(null)
+            setRetryMsg('章节下载失败，可再次重试')
+          } else if (st.progress) {
+            setRetryMsg(`正在重新下载 ${st.progress.images_done}/${st.progress.images_total} 张`)
+          }
+        } catch { /* 轮询失败静默忽略 */ }
+      }, 2000)
+    } catch {
+      setRetryingPhotoId(null)
+      setRetryMsg('重新下载提交失败，请稍后重试')
     }
   }
 
@@ -268,7 +307,7 @@ export default function LibraryDetailPage() {
           <button
             type="button"
             onClick={handleCheckUpdate}
-            disabled={checking}
+            disabled={checking || updating || retryingPhotoId !== null}
             className="flex items-center justify-center gap-2 rounded-2xl border border-white/40 bg-white/50 px-6 py-3 text-sm font-bold text-emerald-600 shadow-lg backdrop-blur-xl transition-all duration-300 hover:scale-[1.02] hover:border-emerald-300/60 hover:shadow-xl active:scale-95 disabled:cursor-wait disabled:opacity-60 dark:border-white/10 dark:bg-slate-800/60 dark:text-emerald-400"
           >
             <RefreshIcon className={`h-5 w-5 ${checking ? 'animate-spin' : ''}`} />
@@ -379,6 +418,19 @@ export default function LibraryDetailPage() {
           )}
 
           {/* ─── 章节目录 ─── */}
+          {retryMsg && (
+            <span className={`animate-update-pop-in inline-flex items-center gap-1.5 text-xs font-semibold ${
+              retryingPhotoId !== null
+                ? 'text-indigo-600 dark:text-indigo-400'
+                : 'text-slate-500 dark:text-slate-400'
+            }`}>
+              {retryingPhotoId !== null && (
+                <span className="animate-update-pulse-dot h-1.5 w-1.5 rounded-full bg-indigo-500" />
+              )}
+              {retryMsg}
+            </span>
+          )}
+
           <section>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
@@ -404,16 +456,19 @@ export default function LibraryDetailPage() {
                 {/* 章节列表行 */}
                 <div className="overflow-hidden rounded-2xl border border-white/40 bg-white/30 backdrop-blur-md dark:border-white/10 dark:bg-slate-800/40">
                   {pagedPhotos.map((photo, i) => (
-                    <button
+                    <div
                       key={photo.id}
-                      type="button"
-                      onClick={() => photo.is_downloaded && navigate(`/library/reader/${photo.id}`)}
-                      disabled={!photo.is_downloaded}
-                      className={`flex w-full items-center justify-between px-5 py-3 text-left text-sm transition-colors hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:hover:bg-emerald-500/15 dark:disabled:hover:bg-transparent ${
+                      className={`flex w-full items-center gap-3 px-5 py-3 text-sm transition-colors ${
                         i !== pagedPhotos.length - 1 ? 'border-b border-slate-200/50 dark:border-slate-700/40' : ''
                       }`}
                     >
-                      <span className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => photo.is_downloaded && navigate(`/library/reader/${photo.id}`)}
+                        disabled={!photo.is_downloaded}
+                        className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition-colors hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:hover:bg-emerald-500/15 dark:disabled:hover:bg-transparent"
+                      >
+                        <span className="flex items-center gap-3">
                         <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
                           photo.is_downloaded
                             ? 'bg-slate-100/80 text-slate-500 dark:bg-slate-700/60 dark:text-slate-400'
@@ -431,7 +486,18 @@ export default function LibraryDetailPage() {
                         )}
                         <ChevronRightIcon className="h-4 w-4 shrink-0 text-slate-300 dark:text-slate-600" />
                       </span>
-                    </button>
+                      </button>
+                      {!photo.is_downloaded && (
+                        <button
+                          type="button"
+                          onClick={() => handleRetryPhoto(photo)}
+                          disabled={retryingPhotoId !== null || checking || updating}
+                          className="shrink-0 rounded-lg border border-amber-300/60 bg-amber-50/70 px-2.5 py-1 text-xs font-bold text-amber-600 transition-all hover:bg-amber-500 hover:text-white active:scale-95 disabled:cursor-wait disabled:opacity-50 dark:border-amber-500/30 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-500 dark:hover:text-white"
+                        >
+                          {retryingPhotoId === photo.id ? '重试中…' : '重试'}
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
 
@@ -489,7 +555,7 @@ function UpdateNotice({ result, onUpdate, updating }: { result: CheckUpdateResul
       <span className="relative flex items-center gap-2">
         <span className="animate-update-pulse-dot h-2 w-2 rounded-full bg-indigo-500" />
         <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-          {result.new_count} 个新章节
+          {result.new_count} 个章节待下载
         </span>
       </span>
       <button

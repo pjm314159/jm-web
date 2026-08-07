@@ -34,6 +34,9 @@ pub struct ImageEntryRaw {
     pub filename: String,
     #[serde(default)]
     pub no_descramble: bool,
+    /// 可选保存路径（绝对路径），如封面保存到专辑根目录
+    #[serde(default)]
+    pub save_path: Option<String>,
 }
 
 /// 任务状态
@@ -139,6 +142,7 @@ pub async fn execute_download(state: Arc<AppState>, req: DownloadRequest) {
             url: i.url,
             filename: i.filename,
             no_descramble: i.no_descramble,
+            save_path: i.save_path,
         })
         .collect();
 

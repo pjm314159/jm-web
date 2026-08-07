@@ -60,10 +60,16 @@ class TestSearch:
     def test_requires_auth(self, api_client):
         assert api_client.get(reverse("search")).status_code == 401
 
-    def test_empty_query(self, auth_client):
-        resp = auth_client.get(reverse("search"), {"q": ""})
+    def test_empty_query_searches_all(self, auth_client):
+        with (
+            patch("comic.services.search.jm_sync.search_site", return_value=FakePage()) as m,
+            patch("comic.services.search.jm_sync.get_album_cover_url", return_value="c"),
+        ):
+            resp = auth_client.get(reverse("search"), {"q": ""})
         assert resp.status_code == 200
-        assert resp.data["results"] == []
+        m.assert_called_once_with("", 1, order_by="mr", time="a", category="0", sub_category=None)
+        assert resp.data["query"] == ""
+        assert resp.data["results"][0]["jm_id"] == "111"
 
     def test_keyword_search(self, auth_client):
         with (
@@ -90,6 +96,55 @@ class TestSearch:
             resp = auth_client.get(reverse("search"), {"q": "标签", "type": "tag"})
         m.assert_called_once()
         assert resp.data["search_type"] == "tag"
+
+    def test_keyword_search_with_filters(self, auth_client):
+        with (
+            patch("comic.services.search.jm_sync.search_site", return_value=FakePage()) as m,
+            patch("comic.services.search.jm_sync.get_album_cover_url", return_value="c"),
+        ):
+            resp = auth_client.get(
+                reverse("search"),
+                {
+                    "q": "orico",
+                    "type": "keyword",
+                    "order_by": "mv",
+                    "time": "w",
+                    "category": "doujin",
+                    "sub_category": "chinese",
+                },
+            )
+        m.assert_called_once_with(
+            "orico",
+            1,
+            order_by="mv",
+            time="w",
+            category="doujin",
+            sub_category="chinese",
+        )
+        assert resp.data["filters"] == {
+            "order_by": "mv",
+            "time": "w",
+            "category": "doujin",
+            "sub_category": "chinese",
+        }
+
+    def test_invalid_filters_fall_back_to_defaults(self, auth_client):
+        with (
+            patch("comic.services.search.jm_sync.search_site", return_value=FakePage()) as m,
+            patch("comic.services.search.jm_sync.get_album_cover_url", return_value="c"),
+        ):
+            resp = auth_client.get(
+                reverse("search"),
+                {
+                    "q": "x",
+                    "order_by": "bad",
+                    "time": "bad",
+                    "category": "bad",
+                    "sub_category": "bad",
+                },
+            )
+        m.assert_called_once_with("x", 1, order_by="mr", time="a", category="0", sub_category=None)
+        assert resp.data["filters"]["order_by"] == "mr"
 
     def test_search_error(self, auth_client):
         with patch("comic.services.search.jm_sync.search_site", side_effect=RuntimeError("net")):

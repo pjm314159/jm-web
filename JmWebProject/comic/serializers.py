@@ -8,17 +8,10 @@ ORM 模型（Album/Photo）用 ModelSerializer；
 字段对齐 docs/plan.md 5.4 实体映射与 4.2 端点设计。
 """
 
-from django.conf import settings
 from rest_framework import serializers
 
 from .models import Album, Photo
-
-
-def build_media_url(relative_path: str | None) -> str | None:
-    """把数据库存储的相对路径（如 images/jmcomic/x/cover.png）拼成可访问 URL。"""
-    if not relative_path:
-        return None
-    return f"{settings.MEDIA_URL}{relative_path}".replace("\\", "/")
+from .utils import build_media_url
 
 
 class PhotoSerializer(serializers.ModelSerializer):

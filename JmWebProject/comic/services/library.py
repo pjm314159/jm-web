@@ -14,7 +14,7 @@ from django.core.cache import cache
 from django.core.paginator import Paginator
 
 from ..models import Album, Photo
-from ..utils import natural_sort_key, sanitize_filename
+from ..utils import build_media_url, natural_sort_key, sanitize_filename
 from . import jm_sync
 
 logger = logging.getLogger(__name__)
@@ -111,17 +111,30 @@ def get_all_library_authors(q: str = "", limit: int = 10) -> list[dict]:
 
 def delete_album(album: Album) -> None:
     """L3：删除本子——物理文件夹 + Redis episode 缓存 + 数据库记录（CASCADE 删章节）。"""
-    safe_name = sanitize_filename(album.name)
-    album_dir = os.path.join(settings.MEDIA_ROOT, "images", "jmcomic", safe_name)
+    # 收集所有章节实际所在目录（兼容旧版命名策略/混用情况），
+    # 无记录时回退到当前清洗规则算出的专辑目录
+    rel_dirs = set()
+    for save_path in (
+        album.photos.exclude(save_path__isnull=True)
+        .exclude(save_path="")
+        .values_list("save_path", flat=True)
+    ):
+        rel_dir = os.path.dirname(save_path.replace("\\", "/"))
+        if rel_dir:
+            rel_dirs.add(rel_dir)
+    if not rel_dirs:
+        rel_dirs.add(os.path.join("images", "jmcomic", sanitize_filename(album.name)))
 
-    if os.path.exists(album_dir) and os.path.isdir(album_dir):
-        try:
-            shutil.rmtree(album_dir)
-            logger.info("已物理删除文件夹: %s", album_dir)
-        except Exception as e:
-            logger.warning("删除文件夹失败: %s", e)
-    else:
-        logger.info("文件夹不存在，跳过物理删除: %s", album_dir)
+    for rel_dir in rel_dirs:
+        album_dir = os.path.join(settings.MEDIA_ROOT, *rel_dir.split("/"))
+        if os.path.exists(album_dir) and os.path.isdir(album_dir):
+            try:
+                shutil.rmtree(album_dir)
+                logger.info("已物理删除文件夹: %s", album_dir)
+            except Exception as e:
+                logger.warning("删除文件夹失败: %s", e)
+        else:
+            logger.info("文件夹不存在，跳过物理删除: %s", album_dir)
 
     with contextlib.suppress(Exception):
         cache.delete(f"jmw-album-episodes-{album.jm_id}")
@@ -133,14 +146,14 @@ def delete_album(album: Album) -> None:
 
 def check_album_updates(album: Album) -> dict:
     """L4：对比远端 episode_list 与本地章节，返回新章节差集并更新缓存/total_episodes。"""
-    local_photo_ids = set(album.photos.values_list("jm_id", flat=True))
+    downloaded_ids = set(album.photos.filter(is_downloaded=True).values_list("jm_id", flat=True))
 
     album_detail = jm_sync.fetch_album_detail(album.jm_id)
     remote_episodes = album_detail.episode_list if hasattr(album_detail, "episode_list") else []
 
     # 统一转为字符串比较，避免 int/str 不匹配
     remote_ids = {str(ep[0]) for ep in remote_episodes if ep[0]}
-    new_episode_ids = remote_ids - local_photo_ids
+    new_episode_ids = remote_ids - downloaded_ids
     new_episodes = [ep for ep in remote_episodes if str(ep[0]) in new_episode_ids]
 
     with contextlib.suppress(Exception):
@@ -158,7 +171,7 @@ def check_album_updates(album: Album) -> dict:
             for ep in new_episodes
         ],
         "new_count": len(new_episodes),
-        "local_count": len(local_photo_ids),
+        "local_count": len(downloaded_ids),
         "remote_count": len(remote_episodes),
     }
 
@@ -171,8 +184,9 @@ def get_photo_reader_data(photo: Photo, page=1, target=None) -> dict:
     if full_dir_path and os.path.isdir(full_dir_path):
         files = [f for f in os.listdir(full_dir_path) if f.lower().endswith(IMAGE_EXTS)]
         files.sort(key=natural_sort_key)
-        base_url = f"{settings.MEDIA_URL}{photo.save_path}".replace("\\", "/")
-        image_files = [f"{base_url}/{f}" for f in files]
+        image_files = [
+            url for f in files if (url := build_media_url(photo.save_path, f)) is not None
+        ]
 
     total_images = len(image_files)
 

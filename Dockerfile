@@ -2,7 +2,10 @@
 FROM python:3.12-slim
 
 # 安装 uv
-RUN pip install --no-cache-dir uv
+# 默认走清华镜像：本机 Docker 代理（127.0.0.1:10808）会截断 PyPI 官方 CDN 的大文件下载，
+# 而 pip 会校验索引提供的哈希，导致构建失败；可通过 --build-arg PIP_INDEX_URL 覆盖。
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir --index-url "$PIP_INDEX_URL" uv
 
 # 设置工作目录
 WORKDIR /app

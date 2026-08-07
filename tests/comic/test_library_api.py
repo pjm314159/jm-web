@@ -85,6 +85,21 @@ class TestCheckUpdates:
         assert resp.data["has_updates"] is False
         assert resp.data["new_count"] == 0
 
+    def test_failed_chapter_counts_as_update(self, auth_client, album, photo, photo2):
+        fake_detail = type(
+            "D",
+            (),
+            {"episode_list": [("67890", "1", "第一章"), ("67891", "2", "第二章")]},
+        )()
+        with patch("comic.services.library.jm_sync.fetch_album_detail", return_value=fake_detail):
+            resp = auth_client.post(reverse("album-check-updates", args=[album.id]))
+        assert resp.status_code == 200
+        assert resp.data["has_updates"] is True
+        assert resp.data["new_count"] == 1
+        assert resp.data["new_episodes"][0]["photo_id"] == "67891"
+        assert resp.data["local_count"] == 1
+        assert resp.data["remote_count"] == 2
+
     def test_remote_error_502(self, auth_client, album):
         with patch(
             "comic.services.library.jm_sync.fetch_album_detail", side_effect=RuntimeError("net")

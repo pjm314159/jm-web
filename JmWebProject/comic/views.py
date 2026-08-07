@@ -292,6 +292,10 @@ class SearchView(APIView):
             query=request.GET.get("q", ""),
             search_type=request.GET.get("type", "keyword"),
             page=page,
+            order_by=request.GET.get("order_by"),
+            time=request.GET.get("time"),
+            category=request.GET.get("category"),
+            sub_category=request.GET.get("sub_category"),
         )
         return Response(data)
 

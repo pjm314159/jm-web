@@ -8,7 +8,7 @@
 纯计算函数（封面 URL / 反混淆序号）保持同步，无需网络。
 """
 
-from jmcomic import JmcomicText, JmImageTool
+from jmcomic import JmcomicText, JmImageTool, JmMagicConstants
 
 from . import jm_async
 from .jm_async import run_on_loop
@@ -32,14 +32,36 @@ def fetch_photos_concurrent(photo_ids: list[str], max_concurrency: int = 6) -> d
     return run_on_loop(jm_async.fetch_photos_concurrent(photo_ids, max_concurrency))
 
 
-def search_site(query: str, page: int = 1):
+def search_site(
+    query: str,
+    page: int = 1,
+    order_by: str = JmMagicConstants.ORDER_BY_LATEST,
+    time: str = JmMagicConstants.TIME_ALL,
+    category: str = JmMagicConstants.CATEGORY_ALL,
+    sub_category: str | None = None,
+):
     """关键字搜索（JmSearchPage）。"""
-    return run_on_loop(jm_async.search_site(query, page))
+    return run_on_loop(
+        jm_async.search_site(
+            query, page, order_by=order_by, time=time, category=category, sub_category=sub_category
+        )
+    )
 
 
-def search_tag(query: str, page: int = 1):
+def search_tag(
+    query: str,
+    page: int = 1,
+    order_by: str = JmMagicConstants.ORDER_BY_LATEST,
+    time: str = JmMagicConstants.TIME_ALL,
+    category: str = JmMagicConstants.CATEGORY_ALL,
+    sub_category: str | None = None,
+):
     """标签搜索（JmSearchPage）。"""
-    return run_on_loop(jm_async.search_tag(query, page))
+    return run_on_loop(
+        jm_async.search_tag(
+            query, page, order_by=order_by, time=time, category=category, sub_category=sub_category
+        )
+    )
 
 
 def fetch_album_comments(album_id: str, page: int = 1):

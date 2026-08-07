@@ -95,12 +95,16 @@ class TestQueryFunctions:
     async def test_search_site(self, fake_client):
         fake_client.search_site = AsyncMock(return_value="page")
         assert await jm_async.search_site("q", 3) == "page"
-        fake_client.search_site.assert_awaited_once_with(search_query="q", page=3)
+        fake_client.search_site.assert_awaited_once_with(
+            search_query="q", page=3, order_by="mr", time="a", category="0", sub_category=None
+        )
 
     async def test_search_tag(self, fake_client):
         fake_client.search_tag = AsyncMock(return_value="page")
         assert await jm_async.search_tag("t", 1) == "page"
-        fake_client.search_tag.assert_awaited_once_with(search_query="t", page=1)
+        fake_client.search_tag.assert_awaited_once_with(
+            search_query="t", page=1, order_by="mr", time="a", category="0", sub_category=None
+        )
 
     async def test_fetch_album_comments(self, fake_client):
         fake_client.album_pagination = AsyncMock(return_value="comments")
@@ -153,9 +157,7 @@ class TestClientLifecycle:
     async def test_init_client_async_swallows_error(self, monkeypatch):
         """预热失败只记日志，不抛出（首次使用时兜底重建）。"""
         monkeypatch.setattr(jm_async, "_client", None)
-        with patch.object(
-            jm_async, "_get_client", AsyncMock(side_effect=RuntimeError("offline"))
-        ):
+        with patch.object(jm_async, "_get_client", AsyncMock(side_effect=RuntimeError("offline"))):
             await jm_async.init_client_async()  # 不应抛出
 
     def test_init_client_submits_to_background_loop(self):

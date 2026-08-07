@@ -30,19 +30,68 @@ export interface SearchResponse {
   search_type: string
   results: SearchAlbum[]
   pagination: SearchPagination
+  filters?: SearchFilters
   error: string | null
 }
 
 export type SearchType = 'keyword' | 'tag'
+
+/** Sorting orders, mirroring jmcomic JmMagicConstants.ORDER_BY_*. */
+export type SearchOrderBy =
+  | 'mr'
+  | 'mv'
+  | 'mp'
+  | 'tf'
+  | 'tr'
+  | 'md'
+  | 'mv_m'
+  | 'mv_w'
+  | 'mv_t'
+
+/** Time ranges, mirroring jmcomic JmMagicConstants.TIME_*. */
+export type SearchTime = 't' | 'w' | 'm' | 'a'
+
+/** Categories, mirroring jmcomic JmMagicConstants.CATEGORY_*. */
+export type SearchCategory =
+  | '0'
+  | 'doujin'
+  | 'single'
+  | 'short'
+  | 'another'
+  | 'hanman'
+  | 'meiman'
+  | 'doujin_cosplay'
+  | '3D'
+  | 'english_site'
+
+/** Sub categories, mirroring jmcomic JmMagicConstants.SUB_*. */
+export type SearchSubCategory = 'chinese' | 'japanese' | 'other' | '3d' | 'cosplay' | 'CG' | 'youth'
+
+/** Optional search filters. */
+export interface SearchFilters {
+  order_by?: SearchOrderBy
+  time?: SearchTime
+  category?: SearchCategory
+  sub_category?: SearchSubCategory
+}
 
 /** S1：关键词/标签搜索（GET /api/search/）。 */
 export async function searchJm(
   query: string,
   type: SearchType = 'keyword',
   page = 1,
+  filters: SearchFilters = {},
 ): Promise<SearchResponse> {
   const { data } = await apiClient.get<SearchResponse>('/search/', {
-    params: { q: query, type, page },
+    params: {
+      q: query,
+      type,
+      page,
+      order_by: filters.order_by,
+      time: filters.time,
+      category: filters.category,
+      sub_category: filters.sub_category,
+    },
   })
   return data
 }

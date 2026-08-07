@@ -11,7 +11,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.paginator import Paginator
 
-from ..utils import natural_sort_key
+from ..utils import build_media_url, natural_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,9 @@ def scan_local_media_folders():
                 cover_url = None
                 # 堆叠预览：取前 3 张图片 URL（design.md L39，不足三张前端条件渲染）
                 preview_urls = [
-                    f"{settings.MEDIA_URL}images/local/{folder.name}/{f.name}"
+                    url
                     for f in image_files[:3]
+                    if (url := build_media_url("images/local", folder.name, f.name)) is not None
                 ]
                 if preview_urls:
                     cover_url = preview_urls[0]
@@ -59,7 +60,7 @@ def scan_local_media_folders():
                 files_list = [
                     {
                         "name": f.name,
-                        "url": f"{settings.MEDIA_URL}images/local/{folder.name}/{f.name}",
+                        "url": build_media_url("images/local", folder.name, f.name),
                     }
                     for f in image_files
                 ]
@@ -85,7 +86,7 @@ def scan_local_media_folders():
                     cover_file = next(
                         (f for f in cover_images if f.stem.lower() == "cover"), cover_images[0]
                     )
-                    cover_url = f"{settings.MEDIA_URL}videos/{folder.name}/{cover_file.name}"
+                    cover_url = build_media_url("videos", folder.name, cover_file.name)
 
                 video_folders.append(
                     {
@@ -97,7 +98,10 @@ def scan_local_media_folders():
                 )
 
                 files_list = [
-                    {"name": f.name, "url": f"{settings.MEDIA_URL}videos/{folder.name}/{f.name}"}
+                    {
+                        "name": f.name,
+                        "url": build_media_url("videos", folder.name, f.name),
+                    }
                     for f in sorted(video_files, key=lambda x: natural_sort_key(x.name))
                 ]
                 cache.set(f"jmw-local-videos-{folder.name}", files_list, timeout=None)

@@ -23,6 +23,7 @@ from asgiref.sync import sync_to_async
 from jmcomic import (
     JmcomicException,
     JmcomicText,
+    JmMagicConstants,
     JmOption,
     JsonResolveFailException,
     MissingAlbumPhotoException,
@@ -142,20 +143,48 @@ async def fetch_photo_detail(photo_id: str, fetch_scramble_id: bool = False):
         raise map_jm_exception(e) from e
 
 
-async def search_site(query: str, page: int = 1):
+async def search_site(
+    query: str,
+    page: int = 1,
+    order_by: str = JmMagicConstants.ORDER_BY_LATEST,
+    time: str = JmMagicConstants.TIME_ALL,
+    category: str = JmMagicConstants.CATEGORY_ALL,
+    sub_category: str | None = None,
+):
     """关键字搜索（JmSearchPage）。"""
     client = await _get_client()
     try:
-        return await client.search_site(search_query=query, page=page)
+        return await client.search_site(
+            search_query=query,
+            page=page,
+            order_by=order_by,
+            time=time,
+            category=category,
+            sub_category=sub_category,
+        )
     except JmcomicException as e:
         raise map_jm_exception(e) from e
 
 
-async def search_tag(query: str, page: int = 1):
+async def search_tag(
+    query: str,
+    page: int = 1,
+    order_by: str = JmMagicConstants.ORDER_BY_LATEST,
+    time: str = JmMagicConstants.TIME_ALL,
+    category: str = JmMagicConstants.CATEGORY_ALL,
+    sub_category: str | None = None,
+):
     """标签搜索（JmSearchPage）。"""
     client = await _get_client()
     try:
-        return await client.search_tag(search_query=query, page=page)
+        return await client.search_tag(
+            search_query=query,
+            page=page,
+            order_by=order_by,
+            time=time,
+            category=category,
+            sub_category=sub_category,
+        )
     except JmcomicException as e:
         raise map_jm_exception(e) from e
 

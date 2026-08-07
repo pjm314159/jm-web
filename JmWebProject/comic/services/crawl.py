@@ -9,6 +9,7 @@
 分层约束：views 只解析请求，本模块负责业务编排。
 """
 
+import contextlib
 import logging
 import os
 import uuid
@@ -18,7 +19,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 from ..models import Album, Photo
-from ..utils import sanitize_filename
+from ..utils import is_safe_filename, sanitize_filename
 from . import jm_sync
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,29 @@ def _submit_to_rust(task_id: str, save_dir: str, scramble_id: str, aid: str, ima
     return False
 
 
+def _cover_image_entry(cover_url: str, safe_album: str) -> dict:
+    """封面图片条目：保存到专辑根目录（与 DB cover_path 一致）。"""
+    return {
+        "url": cover_url,
+        "filename": "cover.png",
+        "no_descramble": True,
+        "save_path": os.path.join(
+            settings.MEDIA_ROOT, "images", "jmcomic", safe_album, "cover.png"
+        ),
+    }
+
+
+def _safe_images(photo_detail) -> list[dict]:
+    """把远端章节图片列表过滤成安全的下载条目，拒绝路径穿越/分隔符/控制字符。"""
+    images = []
+    for img in photo_detail:
+        if not is_safe_filename(getattr(img, "filename", "")):
+            logger.warning("跳过不安全的图片文件名: %r", getattr(img, "filename", ""))
+            continue
+        images.append({"url": img.download_url, "filename": img.filename})
+    return images
+
+
 def _query_rust_status(task_id: str) -> dict | None:
     """查询 Rust 任务状态。"""
     try:
@@ -170,12 +194,12 @@ def _submit_album(crawl_id: str, jm_id: str) -> dict:
             logger.warning("章节详情获取失败，跳过: %s", p_id)
             continue
 
-        images = [{"url": img.download_url, "filename": img.filename} for img in photo_detail]
+        images = _safe_images(photo_detail)
         if not images:
             continue
 
         if not cover_added:
-            images.append({"url": cover_url, "filename": "cover.png", "no_descramble": True})
+            images.append(_cover_image_entry(cover_url, safe_album))
             cover_added = True
 
         p_index, p_name = ep_map[p_id]
@@ -192,7 +216,7 @@ def _submit_album(crawl_id: str, jm_id: str) -> dict:
 
     # 存 Redis 供状态查询
     _save_crawl_info(crawl_id, jm_id, "album", task_ids, len(episodes))
-    _clear_caches()
+    _clear_search_caches()
 
     return {
         "crawl_id": crawl_id,
@@ -209,22 +233,39 @@ def _submit_photo(crawl_id: str, jm_id: str) -> dict:
     target_album_id = photo_detail.album_id
     album_detail = jm_sync.fetch_album_detail(target_album_id)
 
-    images = [{"url": img.download_url, "filename": img.filename} for img in photo_detail]
+    images = _safe_images(photo_detail)
+    if not images:
+        return {
+            "crawl_id": crawl_id,
+            "chapters": 1,
+            "submitted": 0,
+            "message": "章节图片均不安全，已跳过",
+        }
     cover_url = jm_sync.get_album_cover_url(target_album_id)
 
     # ─── Phase 2: WRITE ───
     album_obj = _save_album(album_detail, target_album_id)
-    photo_obj = Photo.objects.update_or_create(
-        jm_id=jm_id,
-        defaults={"album": album_obj, "name": photo_detail.name.strip(), "sort_index": 0},
-    )[0]
-
-    if not album_obj.cover_path:
-        images.append({"url": cover_url, "filename": "cover.png", "no_descramble": True})
+    photo_obj = Photo.objects.filter(jm_id=jm_id).first()
+    if photo_obj is None:
+        photo_obj = Photo.objects.create(
+            jm_id=jm_id,
+            album=album_obj,
+            name=photo_detail.name.strip(),
+            sort_index=0,
+        )
+    else:
+        # 重试已存在章节时保留原有排序，避免被重置到首位
+        photo_obj.album = album_obj
+        photo_obj.name = photo_detail.name.strip()
+        photo_obj.save(update_fields=["album", "name"])
 
     safe_album = sanitize_filename(album_obj.name)
     safe_photo = sanitize_filename(photo_obj.name) or jm_id
     save_dir = os.path.join(settings.MEDIA_ROOT, "images", "jmcomic", safe_album, safe_photo)
+
+    if not album_obj.cover_path:
+        images.append(_cover_image_entry(cover_url, safe_album))
+
     scramble_id = str(getattr(photo_detail, "scramble_id", "220980"))
     aid = str(jm_id)
     task_id = f"{crawl_id}-{jm_id}"
@@ -233,7 +274,7 @@ def _submit_photo(crawl_id: str, jm_id: str) -> dict:
     task_ids = [task_id] if ok else []
 
     _save_crawl_info(crawl_id, jm_id, "photo", task_ids, 1)
-    _clear_caches()
+    _clear_search_caches()
 
     return {
         "crawl_id": crawl_id,
@@ -330,9 +371,9 @@ def _mark_downloaded(task_id: str, info: dict | None = None):
             photo.is_downloaded = True
             photo.save_path = os.path.join("images", "jmcomic", safe_album, safe_photo)
             photo.save(update_fields=["is_downloaded", "save_path"])
-            # 首章设封面（Rust 已随章节任务下载 cover.png）
+            # 封面保存在专辑根目录（Rust 按 save_path 写入）
             if not photo.album.cover_path:
-                photo.album.cover_path = os.path.join(photo.save_path, "cover.png")
+                photo.album.cover_path = os.path.join("images", "jmcomic", safe_album, "cover.png")
                 photo.album.save(update_fields=["cover_path"])
             logger.info("已标记下载完成: %s (%s)", photo_jm_id, photo.save_path)
     except Photo.DoesNotExist:
@@ -341,14 +382,10 @@ def _mark_downloaded(task_id: str, info: dict | None = None):
         logger.exception("标记下载完成时出错: jm_id=%s", photo_jm_id)
 
 
-def _clear_caches():
-    try:
+def _clear_search_caches():
+    """清空在线搜索结果缓存（含已下载标记），爬取不影响本地资源缓存。"""
+    with contextlib.suppress(Exception):
         cache.delete_pattern("jmw-search-*")
-        cache.delete_pattern("jmw-local-images-*")
-        cache.delete_pattern("jmw-local-videos-*")
-        cache.delete("jmw-local-media-folders")
-    except Exception:
-        pass
 
 
 # ------------------------------------------------------------------
@@ -364,7 +401,7 @@ def handle_rust_callback(data: dict) -> dict:
 
     if status_str == "completed":
         _mark_downloaded(task_id)
-        _clear_caches()
+        _clear_search_caches()
         logger.info("Rust 回调: 任务完成 %s", task_id)
     elif status_str == "failed":
         logger.warning("Rust 回调: 任务失败 %s, failed=%s", task_id, data.get("failed"))

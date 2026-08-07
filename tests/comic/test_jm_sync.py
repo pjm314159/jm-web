@@ -30,12 +30,12 @@ class TestSyncBridge:
     def test_search_site(self):
         with patch.object(jm_async, "search_site", AsyncMock(return_value="page")) as m:
             assert jm_sync.search_site("q", 2) == "page"
-        m.assert_awaited_once_with("q", 2)
+        m.assert_awaited_once_with("q", 2, order_by="mr", time="a", category="0", sub_category=None)
 
     def test_search_tag(self):
         with patch.object(jm_async, "search_tag", AsyncMock(return_value="page")) as m:
             assert jm_sync.search_tag("t", 1) == "page"
-        m.assert_awaited_once_with("t", 1)
+        m.assert_awaited_once_with("t", 1, order_by="mr", time="a", category="0", sub_category=None)
 
     def test_fetch_album_comments(self):
         with patch.object(jm_async, "fetch_album_comments", AsyncMock(return_value="cp")) as m:

@@ -10,6 +10,7 @@ import logging
 
 from django.core.cache import cache
 from django.core.paginator import Paginator
+from jmcomic import JmMagicConstants
 
 from ..models import Album
 from . import jm_sync
@@ -20,25 +21,70 @@ IMAGES_PER_PAGE = 300
 SEARCH_CACHE_TTL = 120
 DETAIL_CACHE_TTL = 120  # 在线详情/章节列表缓存 120s
 COMMENT_CACHE_TTL = 60  # 评论分页缓存 60s
+SEARCH_ORDER_BY_VALUES = {
+    JmMagicConstants.ORDER_BY_LATEST,
+    JmMagicConstants.ORDER_BY_VIEW,
+    JmMagicConstants.ORDER_BY_PICTURE,
+    JmMagicConstants.ORDER_BY_LIKE,
+    JmMagicConstants.ORDER_BY_SCORE,
+    JmMagicConstants.ORDER_BY_COMMENT,
+    JmMagicConstants.ORDER_MONTH_RANKING,
+    JmMagicConstants.ORDER_WEEK_RANKING,
+    JmMagicConstants.ORDER_DAY_RANKING,
+}
+SEARCH_TIME_VALUES = {
+    JmMagicConstants.TIME_TODAY,
+    JmMagicConstants.TIME_WEEK,
+    JmMagicConstants.TIME_MONTH,
+    JmMagicConstants.TIME_ALL,
+}
+SEARCH_CATEGORY_VALUES = {
+    JmMagicConstants.CATEGORY_ALL,
+    JmMagicConstants.CATEGORY_DOUJIN,
+    JmMagicConstants.CATEGORY_SINGLE,
+    JmMagicConstants.CATEGORY_SHORT,
+    JmMagicConstants.CATEGORY_ANOTHER,
+    JmMagicConstants.CATEGORY_HANMAN,
+    JmMagicConstants.CATEGORY_MEIMAN,
+    JmMagicConstants.CATEGORY_DOUJIN_COSPLAY,
+    JmMagicConstants.CATEGORY_3D,
+    JmMagicConstants.CATEGORY_ENGLISH_SITE,
+}
+SEARCH_SUB_CATEGORY_VALUES = {
+    JmMagicConstants.SUB_CHINESE,
+    JmMagicConstants.SUB_JAPANESE,
+    JmMagicConstants.SUB_ANOTHER_OTHER,
+    JmMagicConstants.SUB_ANOTHER_3D,
+    JmMagicConstants.SUB_ANOTHER_COSPLAY,
+    JmMagicConstants.SUB_DOUJIN_CG,
+    JmMagicConstants.SUB_SINGLE_YOUTH,
+}
 
 
 def _episode_to_dict(ep) -> dict:
     return {"photo_id": ep[0], "index": ep[1], "name": ep[2] if ep[2] else str(ep[1])}
 
 
-def search(query: str, search_type: str = "keyword", page: int = 1) -> dict:
+def search(
+    query: str,
+    search_type: str = "keyword",
+    page: int = 1,
+    order_by: str | None = None,
+    time: str | None = None,
+    category: str | None = None,
+    sub_category: str | None = None,
+) -> dict:
     """S1：关键字/标签搜索，缓存 120s，标记本地已下载。"""
     query = (query or "").strip()
-    if not query:
-        return {
-            "query": "",
-            "search_type": search_type,
-            "results": [],
-            "pagination": {},
-            "error": None,
-        }
+    order_by = order_by if order_by in SEARCH_ORDER_BY_VALUES else JmMagicConstants.ORDER_BY_LATEST
+    time = time if time in SEARCH_TIME_VALUES else JmMagicConstants.TIME_ALL
+    category = category if category in SEARCH_CATEGORY_VALUES else JmMagicConstants.CATEGORY_ALL
+    sub_category = (sub_category or "").strip() or None
+    sub_category = sub_category if sub_category in SEARCH_SUB_CATEGORY_VALUES else None
 
-    cache_key = f"jmw-search-{search_type}-{query}-{page}"
+    cache_key = (
+        f"jmw-search-{search_type}-{query}-{page}-{order_by}-{time}-{category}-{sub_category}"
+    )
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -47,10 +93,16 @@ def search(query: str, search_type: str = "keyword", page: int = 1) -> dict:
     results: list[dict] = []
     pagination: dict = {}
     try:
+        search_kwargs = {
+            "order_by": order_by,
+            "time": time,
+            "category": category,
+            "sub_category": sub_category,
+        }
         jm_page = (
-            jm_sync.search_tag(query, page)
+            jm_sync.search_tag(query, page, **search_kwargs)
             if search_type == "tag"
-            else jm_sync.search_site(query, page)
+            else jm_sync.search_site(query, page, **search_kwargs)
         )
 
         album_ids = [album_id for album_id, _ in jm_page.content]
@@ -99,6 +151,12 @@ def search(query: str, search_type: str = "keyword", page: int = 1) -> dict:
         "search_type": search_type,
         "results": results,
         "pagination": pagination,
+        "filters": {
+            "order_by": order_by,
+            "time": time,
+            "category": category,
+            "sub_category": sub_category,
+        },
         "error": error_msg,
     }
     if not error_msg:

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures::stream::{self, StreamExt};
@@ -16,6 +16,8 @@ pub struct ImageEntry {
     pub filename: String,
     /// 为 true 时跳过反混淆，直接保存原图（如封面）
     pub no_descramble: bool,
+    /// 可选保存路径（绝对路径）；为空时保存到 `{save_dir}/{filename}`
+    pub save_path: Option<String>,
 }
 
 /// 章节下载结果
@@ -24,6 +26,36 @@ pub struct ChapterResult {
     pub success: u32,
     pub failed: Vec<String>,
     pub total: u32,
+}
+
+/// 严格校验单段文件名：拒绝路径分隔符、点开头、`..`、控制字符等。
+fn validate_single_component(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains("..")
+        && !name.starts_with('.')
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.chars().any(|c| c.is_control())
+}
+
+/// 构建下载输出路径，并对保存路径做路径穿越校验。
+fn build_output_path(save_dir: &str, img: &ImageEntry) -> Result<PathBuf, String> {
+    if let Some(save_path) = &img.save_path {
+        let path = Path::new(save_path);
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(format!("unsafe save_path: {save_path}"));
+        }
+        return Ok(path.to_path_buf());
+    }
+    if !validate_single_component(&img.filename) {
+        return Err(format!("unsafe filename: {}", img.filename));
+    }
+    Ok(Path::new(save_dir).join(&img.filename))
 }
 
 /// 计算 JM 混淆切片数（与 jmcomic JmImageTool.get_num 一致）
@@ -116,10 +148,13 @@ async fn download_one(
     aid: u64,
     img: &ImageEntry,
 ) -> Result<(), String> {
-    let path = format!("{save_dir}/{}", img.filename);
+    let path = build_output_path(save_dir, img)?;
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| format!("non-UTF-8 output path: {}", path.display()))?;
 
     // 断点续传：已存在且非空 → 跳过
-    if let Ok(meta) = tokio::fs::metadata(&path).await {
+    if let Ok(meta) = tokio::fs::metadata(path_str).await {
         if meta.len() > 0 {
             debug!("跳过已存在: {}", img.filename);
             return Ok(());
@@ -127,7 +162,7 @@ async fn download_one(
     }
 
     // 确保目录存在
-    if let Some(parent) = Path::new(&path).parent() {
+    if let Some(parent) = Path::new(path_str).parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|e| format!("mkdir: {e}"))?;
@@ -146,7 +181,7 @@ async fn download_one(
 
     // 封面等无需反混淆的图片直接保存
     if img.no_descramble {
-        std::fs::write(&path, &bytes).map_err(|e| format!("write: {e}"))?;
+        std::fs::write(path_str, &bytes).map_err(|e| format!("write: {e}"))?;
         return Ok(());
     }
 
@@ -169,12 +204,12 @@ async fn download_one(
     let num = calc_scramble_num(scramble_id, aid, stem);
 
     // 解码失败重试 1 次
-    if let Err(e) = descramble_and_save(&bytes, num, &path) {
+    if let Err(e) = descramble_and_save(&bytes, num, path_str) {
         warn!("解码失败 {}，重试: {e}", img.filename);
         let bytes2 = fetch_with_retry(client, &img.url, retry_config)
             .await
             .map_err(|e| e.to_string())?;
-        descramble_and_save(&bytes2, num, &path)?;
+        descramble_and_save(&bytes2, num, path_str)?;
     }
 
     Ok(())
@@ -305,6 +340,50 @@ mod tests {
     #[test]
     fn test_calc_scramble_num_below_268850() {
         assert_eq!(calc_scramble_num(220980, 250000, "00001"), 10);
+    }
+
+    #[test]
+    fn test_validate_single_component() {
+        assert!(validate_single_component("00001.jpg"));
+        assert!(validate_single_component("cover.png"));
+        assert!(!validate_single_component(""));
+        assert!(!validate_single_component(".."));
+        assert!(!validate_single_component("a..b"));
+        assert!(!validate_single_component("../x.jpg"));
+        assert!(!validate_single_component("a/b.jpg"));
+        assert!(!validate_single_component("a\\b.jpg"));
+        assert!(!validate_single_component(".hidden.jpg"));
+        assert!(!validate_single_component("a\nb.jpg"));
+    }
+
+    #[test]
+    fn test_build_output_path_rejects_traversal() {
+        let safe = ImageEntry {
+            url: "https://x/1.jpg".into(),
+            filename: "1.jpg".into(),
+            no_descramble: false,
+            save_path: None,
+        };
+        assert_eq!(
+            build_output_path("/tmp", &safe).unwrap(),
+            Path::new("/tmp").join("1.jpg")
+        );
+
+        let bad_filename = ImageEntry {
+            url: "https://x/e.jpg".into(),
+            filename: "../evil.jpg".into(),
+            no_descramble: false,
+            save_path: None,
+        };
+        assert!(build_output_path("/tmp", &bad_filename).is_err());
+
+        let bad_save_path = ImageEntry {
+            url: "https://x/e.jpg".into(),
+            filename: "1.jpg".into(),
+            no_descramble: false,
+            save_path: Some("/tmp/../evil.jpg".into()),
+        };
+        assert!(build_output_path("/tmp", &bad_save_path).is_err());
     }
 
     #[test]

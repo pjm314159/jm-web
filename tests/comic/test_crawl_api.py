@@ -103,3 +103,98 @@ class TestCrawlTaskStatus:
             resp = auth_client.get(reverse("crawl_task_status", args=["t1"]))
         assert resp.data["state"] == "UNKNOWN"
         assert "error" in resp.data
+
+
+class TestSubmitPhotoRetry:
+    def test_retry_keeps_sort_index(self, album, photo2):
+        from comic.services import crawl as crawl_service
+
+        class FakeImage:
+            download_url = "https://x/1.jpg"
+            filename = "1.jpg"
+
+        class FakePhoto:
+            album_id = "12345"
+            name = "第二章"
+            scramble_id = "220980"
+
+            def __iter__(self):
+                return iter([FakeImage()])
+
+        class FakeAlbum:
+            name = "测试本子"
+            author = "测试作者"
+            tags = []
+            actors = []
+            description = ""
+            episode_list = [("67891", "2", "第二章")]
+
+        with (
+            patch("comic.services.crawl.jm_sync.fetch_photo_detail", return_value=FakePhoto()),
+            patch("comic.services.crawl.jm_sync.fetch_album_detail", return_value=FakeAlbum()),
+            patch(
+                "comic.services.crawl.jm_sync.get_album_cover_url",
+                return_value="https://x/cover.png",
+            ),
+            patch("comic.services.crawl._submit_to_rust", return_value=True),
+        ):
+            result = crawl_service._submit_photo("retry123", "67891")
+
+        photo2.refresh_from_db()
+        assert result["submitted"] == 1
+        assert photo2.sort_index == 2
+        assert photo2.is_downloaded is False
+        assert photo2.album_id == album.id
+
+
+class TestUnsafeImageFilenames:
+    def test_submit_photo_skips_unsafe_filenames(self, album, photo2):
+        from comic.services import crawl as crawl_service
+
+        class FakeImage:
+            def __init__(self, filename):
+                self.download_url = f"https://x/{filename}"
+                self.filename = filename
+
+        class FakePhoto:
+            album_id = "12345"
+            name = "第二章"
+            scramble_id = "220980"
+
+            def __iter__(self):
+                return iter(
+                    [
+                        FakeImage("1.jpg"),
+                        FakeImage("../evil.jpg"),
+                        FakeImage("2\\x.jpg"),
+                        FakeImage(".hidden.jpg"),
+                    ]
+                )
+
+        class FakeAlbum:
+            name = "测试本子"
+            author = "测试作者"
+            tags = []
+            actors = []
+            description = ""
+            episode_list = [("67891", "2", "第二章")]
+
+        submitted_images = []
+
+        def fake_submit(task_id, save_dir, scramble_id, aid, images):
+            submitted_images.extend(images)
+            return True
+
+        with (
+            patch("comic.services.crawl.jm_sync.fetch_photo_detail", return_value=FakePhoto()),
+            patch("comic.services.crawl.jm_sync.fetch_album_detail", return_value=FakeAlbum()),
+            patch(
+                "comic.services.crawl.jm_sync.get_album_cover_url",
+                return_value="https://x/cover.png",
+            ),
+            patch("comic.services.crawl._submit_to_rust", side_effect=fake_submit),
+        ):
+            result = crawl_service._submit_photo("retry123", "67891")
+
+        assert result["submitted"] == 1
+        assert [img["filename"] for img in submitted_images] == ["1.jpg"]
