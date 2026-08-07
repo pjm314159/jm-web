@@ -12,12 +12,15 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { getAlbumDetail, getPhotoReader } from '../api/library'
+import CommentSection from '../components/CommentSection'
 import { setPageTitle } from '../lib/usePageTitle'
 import { LocalComicImage } from '../components/reader/ComicImage'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronUpIcon,
+  CloseIcon,
+  CommentBubbleIcon,
   EndOfPageLine,
   ListIcon,
   PageSelect,
@@ -49,6 +52,8 @@ export default function ReaderLibraryPage({
   const [panelOpen, setPanelOpen] = useState(false)
   const [pageOpen, setPageOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const [commentsTouched, setCommentsTouched] = useState(false)
   const { bg, setBg } = useReaderSettings()
 
   /* L5：本章图片（章内分页 + 上/下章 id） */
@@ -271,6 +276,57 @@ export default function ReaderLibraryPage({
           </button>
         </div>
       </ReaderNavShell>
+
+      {/* 评论入口：右侧浮动 SVG，随导航栏同显隐，点击召唤评论抽屉 */}
+      <button
+        type="button"
+        aria-label="查看评论"
+        onClick={() => {
+          setCommentsOpen(true)
+          setCommentsTouched(true)
+        }}
+        className={`fixed right-4 top-1/2 z-40 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 bg-white/50 text-slate-600 shadow-lg backdrop-blur-2xl transition-all duration-300 ease-out hover:scale-110 hover:border-indigo-300/60 hover:text-indigo-600 active:scale-95 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:text-indigo-400 ${
+          barsVisible && !commentsOpen
+            ? 'translate-x-0 opacity-100'
+            : 'pointer-events-none translate-x-16 opacity-0'
+        }`}
+      >
+        <CommentBubbleIcon className="h-5 w-5" />
+      </button>
+
+      {/* 评论抽屉：复用在线阅读器评论区，数据来自远端 JM 评论接口，无本地存储 */}
+      <aside
+        className={`fixed inset-y-0 right-0 z-50 w-full max-w-lg transform transition-transform duration-300 ease-out ${
+          commentsOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="flex h-full flex-col border-l border-white/30 bg-white/70 shadow-2xl backdrop-blur-2xl dark:border-white/10 dark:bg-slate-900/80">
+          <div className="flex shrink-0 items-center justify-between border-b border-white/30 px-5 py-3 dark:border-white/10">
+            <span className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-100">
+              <CommentBubbleIcon className="h-4 w-4 text-indigo-500" />
+              评论区
+            </span>
+            <button
+              type="button"
+              aria-label="关闭评论区"
+              onClick={() => setCommentsOpen(false)}
+              className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-500 transition-all duration-300 hover:bg-white/50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-white"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          </div>
+          {/* 首次打开后保持挂载，保留已加载评论；隐藏自带标题避免与抽屉头重复 */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {commentsTouched && album?.jm_id ? (
+              <CommentSection jmId={album.jm_id} showHeader={false} />
+            ) : (
+              <div className="py-16 text-center text-sm text-slate-400 dark:text-slate-500">
+                本子数据加载中…
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
     </div>
   )
 }

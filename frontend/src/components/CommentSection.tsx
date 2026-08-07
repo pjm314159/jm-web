@@ -204,7 +204,7 @@ export default function CommentSection({
       setTotal(res.total)
       setHasNext(res.has_next)
     } catch {
-      setError('评论加载失败，请稍后重试')
+      setError('评论加载失败，请检查网络后重试')
     } finally {
       loadingRef.current = false
       setLoading(false)
