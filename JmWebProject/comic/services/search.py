@@ -8,6 +8,7 @@ import contextlib
 import datetime
 import logging
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.paginator import Paginator
 from jmcomic import JmMagicConstants
@@ -17,10 +18,10 @@ from . import jm_sync
 
 logger = logging.getLogger(__name__)
 
-IMAGES_PER_PAGE = 300
-SEARCH_CACHE_TTL = 120
-DETAIL_CACHE_TTL = 120  # 在线详情/章节列表缓存 120s
-COMMENT_CACHE_TTL = 60  # 评论分页缓存 60s
+IMAGES_PER_PAGE = settings.IMAGES_PER_PAGE
+SEARCH_CACHE_TTL = settings.SEARCH_CACHE_TTL
+DETAIL_CACHE_TTL = settings.DETAIL_CACHE_TTL
+COMMENT_CACHE_TTL = settings.COMMENT_CACHE_TTL
 SEARCH_ORDER_BY_VALUES = {
     JmMagicConstants.ORDER_BY_LATEST,
     JmMagicConstants.ORDER_BY_VIEW,
@@ -74,7 +75,7 @@ def search(
     category: str | None = None,
     sub_category: str | None = None,
 ) -> dict:
-    """S1：关键字/标签搜索，缓存 120s，标记本地已下载。"""
+    """S1：关键字/标签/作者搜索，缓存 120s，标记本地已下载。"""
     query = (query or "").strip()
     order_by = order_by if order_by in SEARCH_ORDER_BY_VALUES else JmMagicConstants.ORDER_BY_LATEST
     time = time if time in SEARCH_TIME_VALUES else JmMagicConstants.TIME_ALL
@@ -99,11 +100,12 @@ def search(
             "category": category,
             "sub_category": sub_category,
         }
-        jm_page = (
-            jm_sync.search_tag(query, page, **search_kwargs)
-            if search_type == "tag"
-            else jm_sync.search_site(query, page, **search_kwargs)
-        )
+        if search_type == "tag":
+            jm_page = jm_sync.search_tag(query, page, **search_kwargs)
+        elif search_type == "author":
+            jm_page = jm_sync.search_author(query, page, **search_kwargs)
+        else:
+            jm_page = jm_sync.search_site(query, page, **search_kwargs)
 
         album_ids = [album_id for album_id, _ in jm_page.content]
         downloaded_ids = set(
@@ -272,10 +274,20 @@ def get_photo_images(photo_id: str, page: int = 1, target=None) -> dict:
     photo_detail = jm_sync.fetch_photo_detail(photo_id, True)
     scramble_id = photo_detail.scramble_id
 
-    image_data_list = [
-        {"url": img.img_url, "num": jm_sync.get_num_by_url(scramble_id, img.img_url)}
-        for img in photo_detail
-    ]
+    image_data_list = []
+    for img in photo_detail:
+        img_url = img.img_url
+        is_gif = bool(getattr(img, "is_gif", False)) or img_url.split("?", 1)[0].lower().endswith(
+            ".gif"
+        )
+        image_data_list.append(
+            {
+                "url": img_url,
+                # GIF 是原始图片，无需反混淆（与下载端 no_descramble 对齐）
+                "num": 0 if is_gif else jm_sync.get_num_by_url(scramble_id, img_url),
+                "is_gif": is_gif,
+            }
+        )
 
     if target is not None:
         with contextlib.suppress(Exception):

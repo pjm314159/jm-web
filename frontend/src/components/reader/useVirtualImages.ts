@@ -20,11 +20,18 @@ export interface ImageEntry {
   bitmap: ImageBitmap | null
   width: number
   height: number
+  /** 原始图片（如 GIF）直接渲染的 URL，不走 WASM 反混淆 */
+  rawUrl?: string
 }
 
 type ImageStateMap = Record<number, ImageEntry>
 
 const IDLE_ENTRY: ImageEntry = { status: 'idle', bitmap: null, width: 0, height: 0 }
+
+/** 判断图片 URL 是否为 GIF（去掉查询参数后按后缀判断，与后端 is_gif 对齐）。 */
+function isGifUrl(url: string): boolean {
+  return url.split('?')[0].toLowerCase().endsWith('.gif')
+}
 
 export function useVirtualImages(images: SearchReaderImage[]) {
   const [stateMap, setStateMap] = useState<ImageStateMap>({})
@@ -93,6 +100,20 @@ export function useVirtualImages(images: SearchReaderImage[]) {
     requestedRef.current.add(idx)
 
     const url = imgs[idx].url
+    // GIF 等原始图片：不经过 WASM（会丢失动画/被反混淆），直接 <img> 渲染
+    if (imgs[idx].is_gif || isGifUrl(url)) {
+      setStateMap((prev) => ({
+        ...prev,
+        [idx]: {
+          status: 'done',
+          bitmap: null,
+          width: 0,
+          height: 0,
+          rawUrl: url,
+        },
+      }))
+      return
+    }
     if (cacheRef.current.has(url)) {
       const bmp = cacheRef.current.get(url)!
       setStateMap((prev) => ({

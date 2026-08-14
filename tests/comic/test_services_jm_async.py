@@ -137,7 +137,7 @@ class TestClientLifecycle:
         option = MagicMock()
         option.new_jm_async_client = MagicMock(return_value=ctx)
 
-        with patch.object(jm_async.JmOption, "default", return_value=option):
+        with patch.object(jm_async, "_build_option", return_value=option):
             c1 = await jm_async._get_client()
             c2 = await jm_async._get_client()
         assert c1 is fake_client
@@ -230,3 +230,29 @@ class TestDownload:
         images = [FakeImage("good.jpg"), FakeImage("bad.jpg")]
         count = await jm_async.download_photo_images(client, images, "/tmp", max_concurrency=2)
         assert count == 1  # 一张失败、一张成功，不中断整章
+
+
+class TestBuildOption:
+    def test_uses_settings_defaults(self):
+        option = jm_async._build_option()
+        from django.conf import settings
+
+        assert option.client.get("timeout") == settings.JM_OPTION_TIMEOUT
+        assert option.client.get("retry_times") == settings.JM_OPTION_RETRY_TIMES
+
+    def test_custom_domains_override(self, settings):
+        settings.JM_OPTION_DOMAINS = ["a.example.com", "b.example.com"]
+        option = jm_async._build_option()
+        assert option.client.get("domain") == ["a.example.com", "b.example.com"]
+
+    def test_proxy_injected_via_postman_meta_data(self, settings):
+        settings.PROXY = "http://127.0.0.1:10808"
+        option = jm_async._build_option()
+        meta = option.client.postman.meta_data
+        assert meta.get("proxies") == "http://127.0.0.1:10808"
+
+    def test_no_proxy_when_not_configured(self, settings):
+        settings.PROXY = None
+        option = jm_async._build_option()  # 不应抛错，也不注入自定义代理
+        meta = option.client.postman.meta_data
+        assert "http://127.0.0.1:10808" not in str(meta.get("proxies"))

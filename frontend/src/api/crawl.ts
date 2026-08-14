@@ -45,3 +45,30 @@ export async function getCrawlTaskStatus(taskId: string): Promise<CrawlTaskStatu
   const { data } = await apiClient.get<CrawlTaskStatus>(`/crawl/tasks/${taskId}/`)
   return data
 }
+
+/** C2+ 列表项：仍在下载中的任务。 */
+export interface CrawlTaskSummary {
+  crawl_id: string
+  jm_id: string
+  jm_type: 'album' | 'photo'
+  state: 'DOWNLOADING' | 'PROGRESS'
+  progress: {
+    chapters_done: number
+    chapters_total: number
+    images_done: number
+    images_total: number
+  }
+}
+
+/** C2+ 响应：全部进行中的下载。 */
+export interface CrawlTasksResponse {
+  tasks: CrawlTaskSummary[]
+  count: number
+  error?: string
+}
+
+/** C2+：列出所有仍在下载中的任务（GET /api/crawl/tasks/）。 */
+export async function getCrawlTasks(): Promise<CrawlTasksResponse> {
+  const { data } = await apiClient.get<CrawlTasksResponse>('/crawl/tasks/')
+  return data
+}

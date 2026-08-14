@@ -97,6 +97,19 @@ class TestSearch:
         m.assert_called_once()
         assert resp.data["search_type"] == "tag"
 
+    def test_author_search(self, auth_client):
+        with (
+            patch("comic.services.search.jm_sync.search_author", return_value=FakePage()) as m,
+            patch("comic.services.search.jm_sync.get_album_cover_url", return_value="c"),
+        ):
+            resp = auth_client.get(reverse("search"), {"q": "作者名", "type": "author"})
+        m.assert_called_once_with(
+            "作者名", 1, order_by="mr", time="a", category="0", sub_category=None
+        )
+        assert resp.status_code == 200
+        assert resp.data["search_type"] == "author"
+        assert resp.data["results"][0]["author"] == "作者1"
+
     def test_keyword_search_with_filters(self, auth_client):
         with (
             patch("comic.services.search.jm_sync.search_site", return_value=FakePage()) as m,
@@ -214,6 +227,23 @@ class TestSearchPhotoImages:
         assert resp.data["total_images"] == 2
         assert resp.data["scramble_id"] == "220980"
         assert resp.data["images"][0]["url"] == "http://img/1.jpg"
+
+    def test_images_marks_gif_as_raw(self, auth_client):
+        detail = FakePhotoDetail(
+            [
+                FakeImg("http://img/1.jpg"),
+                FakeImg("http://img/2.gif?v=123"),
+            ]
+        )
+        with (
+            patch("comic.services.search.jm_sync.fetch_photo_detail", return_value=detail),
+            patch("comic.services.search.jm_sync.get_num_by_url", return_value=8),
+        ):
+            resp = auth_client.get(reverse("search_photo_images", args=["67890"]))
+        assert resp.status_code == 200
+        images = resp.data["images"]
+        assert images[0] == {"url": "http://img/1.jpg", "num": 8, "is_gif": False}
+        assert images[1] == {"url": "http://img/2.gif?v=123", "num": 0, "is_gif": True}
 
     def test_images_502(self, auth_client):
         with patch(

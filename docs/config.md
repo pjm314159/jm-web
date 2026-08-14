@@ -18,11 +18,13 @@
 
 ## 1. Rust 下载微服务（`rust-downloader/config.toml`）
 
-配置文件路径查找顺序：
-1. 命令行参数 `--config <path>`
+配置文件路径查找顺序（已实现）：
+1. 命令行参数 `--config <path>` / `--config=<path>`
 2. 环境变量 `JM_CONFIG_FILE` 指定的路径
 3. 可执行文件同目录下 `config.toml`
 4. 若均不存在 → 使用默认值 + 环境变量覆盖
+
+示例文件：`rust-downloader/config.example.toml`（复制为 `config.toml` 使用）。
 
 ### 1.1 `[server]` — 网络与日志
 
@@ -31,11 +33,11 @@
 | `listen_addr` | string | `"0.0.0.0:3080"` | `LISTEN_ADDR` | HTTP 监听地址 |
 | `log_level` | string | `"info"` | `RUST_LOG` | 日志级别 (trace/debug/info/warn/error) |
 
-### 1.2 `[redis]` — 消息队列
+### 1.2 `[redis]` — Redis 连接
 
 | 参数 | 类型 | 默认值 | 环境变量覆盖 | 说明 |
 |------|------|--------|-------------|------|
-| `url` | string | `"redis://127.0.0.1:6379/0"` | `REDIS_URL` | Redis 连接串 |
+| `url` | string | `"redis://127.0.0.1:6379/0"` | `REDIS_URL` | Redis 连接串（本地媒体扫描结果写入） |
 
 ### 1.3 `[storage]` — 文件存储
 
@@ -51,6 +53,10 @@
 | `timeout_secs` | uint | `30` | `TIMEOUT_SECS` | 单次 HTTP 请求超时（秒） |
 | `retry_times` | uint | `5` | `RETRY_TIMES` | 单张图片最大重试次数 |
 | `jitter_cap_ms` | uint | `2000` | `JITTER_CAP_MS` | 全抖动退避上限（毫秒） |
+| `decode_concurrency` | uint | `10` | `DECODE_CONCURRENCY` | 反混淆最大并发数（0 = 不限制） |
+| `proxy` | string | — | `PROXY` | 图片下载代理地址（不设置/留空则直连；仅图片下载 client 使用） |
+
+> 注意：图片下载另有固定专用超时 600s 与 jmcomic 同款校验头，不受 `timeout_secs` 限制。
 
 ### 1.5 `[task]` — 任务管理
 
@@ -60,11 +66,13 @@
 | `retention_secs` | uint | `3600` | `TASK_RETENTION_SECS` | 已结束任务在内存中保留时长（秒），超时淘汰 |
 | `max_queued` | uint | `200` | `MAX_QUEUED_TASKS` | 最大排队任务数，超限返回 503 |
 
+> 任务队列为进程内存实现（DashMap），Redis 仅用于本地媒体扫描结果，不是消息队列。
+
 ### 1.6 `[scanner]` — 定时扫描
 
 | 参数 | 类型 | 默认值 | 环境变量覆盖 | 说明 |
 |------|------|--------|-------------|------|
-| `interval_secs` | uint | `60` | `SCAN_INTERVAL_SECS` | Redis 队列扫描间隔（秒） |
+| `interval_secs` | uint | `60` | `SCAN_INTERVAL_SECS` | 本地媒体目录扫描间隔（秒） |
 
 ---
 
@@ -79,7 +87,8 @@
 | `DJANGO_SECRET_KEY` | string | 内置不安全值 | 生产必填 | Session/CSRF/JWT 签名密钥 |
 | `REGISTRATION_SECRET_KEY` | string | — | **是** | 注册邀请码，缺失则启动报错 |
 | `DJANGO_DEBUG` | bool | `false` | 否 | 调试模式 |
-| `ALLOWED_HOST` | string | — | 生产必填 | 允许的主域名 |
+| `ALLOWED_HOST` | string | — | 生产必填 | 允许的主域名（自动附带 127.0.0.1/localhost/web） |
+| `DJANGO_SETTINGS_MODULE` | string | `JmWebProject.settings` | 否 | Django 配置模块 |
 
 ### 2.2 安全
 
@@ -101,32 +110,52 @@
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `JM_DOWNLOAD_IMAGE_CONCURRENCY` | int | `30` | 提交给 Rust 的单章节图片并发数 |
-| `JM_DOWNLOAD_PHOTO_CONCURRENCY` | int | `3` | 同时下载的章节数（前端批量提交用） |
+| `JM_DOWNLOAD_PHOTO_CONCURRENCY` | int | `3` | 同时下载的章节数 |
 | `RUST_REQUEST_TIMEOUT` | int | `15` | Django→Rust HTTP 请求超时（秒） |
+| `RUST_HTTP_MAX_CONNECTIONS` | int | `10` | Django→Rust 连接池上限 |
+| `RUST_HTTP_MAX_KEEPALIVE` | int | `5` | Django→Rust 空闲保活连接数 |
 | `CRAWL_STATE_TTL` | int | `86400` | 下载任务状态缓存过期（秒，默认 24h） |
 
-### 2.5 分页与缓存
+### 2.5 jmcomic 客户端
+
+仅注入本项目需要的客户端参数（基于 jmcomic 默认配置，不加载 option 文件）：
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `IMAGES_PER_PAGE` | int | `300` | 阅读器章内分页大小（图片数/页） |
+| `JM_OPTION_TIMEOUT` | int | `30` | jmcomic 单请求超时（秒） |
+| `JM_OPTION_RETRY_TIMES` | int | `5` | jmcomic 请求重试次数 |
+| `JM_OPTION_DOMAINS` | csv | jmcomic 内置 | 自定义 API 域名列表（逗号分隔） |
+| `PROXY` | string | — | 代理地址（jmcomic 与 Rust 下载服务共用；留空/不设置则 jmcomic 走自身默认、Rust 直连） |
+
+### 2.6 分页与缓存
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `IMAGES_PER_PAGE` | int | `300` | 阅读器章内分页大小（图片数/页，在线/藏书阁/本地通用） |
 | `LIST_PAGE_SIZE` | int | `30` | DRF 列表分页大小（藏书阁/本地库） |
 | `SEARCH_CACHE_TTL` | int | `120` | 搜索结果缓存时长（秒） |
 | `DETAIL_CACHE_TTL` | int | `120` | 在线详情/章节列表缓存（秒） |
+| `COMMENT_CACHE_TTL` | int | `60` | 在线评论分页缓存（秒） |
 | `CACHE_DEFAULT_TIMEOUT` | int | `300` | Redis 缓存默认过期（秒） |
 
-### 2.6 认证与安全
+### 2.7 媒体与数据库
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `MEDIA_ROOT` | path | `<BASE_DIR>/media` | 媒体文件根目录（Docker 内建议与卷一致） |
+| `DB_NAME` | path | `<BASE_DIR>/db/db.sqlite3` | SQLite 数据库路径 |
+| `DB_TIMEOUT` | int | `5` | SQLite 锁等待超时（秒） |
+| `DB_CONN_MAX_AGE` | int | `60` | 数据库连接最大存活（秒） |
+| `LOCAL_IMAGE_EXTS` | csv | `.jpg,.jpeg,.png,.webp,.gif` | 本地媒体识别的图片扩展名 |
+| `LOCAL_VIDEO_EXTS` | csv | `.mp4,.webm,.mov,.mkv` | 本地媒体识别的视频扩展名 |
+
+### 2.8 认证与日志
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `SESSION_COOKIE_AGE` | int | `604800`（7天） | Session 有效期（秒） |
 | JWT Access/Refresh | timedelta | 7 天 | 代码内固定 |
 | `ANON_THROTTLE_RATE` | string | `30/min` | 匿名接口限流 |
-
-### 2.7 日志
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
 | `DJANGO_LOG_LEVEL` | string | `INFO` | 日志级别 |
 | `DJANGO_LOG_DIR` | path | `<BASE_DIR>/logs` | 日志文件目录 |
 
@@ -153,8 +182,9 @@ Vite 构建时注入，仅 `VITE_` 前缀变量暴露给客户端。
 |------|------|--------|------|
 | `VITE_QUERY_STALE_TIME` | int | `30000` | 全局 TanStack Query staleTime (ms) |
 | `VITE_QUERY_RETRY` | int | `1` | 全局请求失败重试次数 |
-| `VITE_READER_STALE_TIME` | int | `300000` | 阅读器图片数据 staleTime (ms) |
-| `VITE_CRAWL_POLL_INTERVAL` | int | `2000` | 下载进度轮询间隔 (ms) |
+| `VITE_READER_STALE_TIME` | int | `300000` | 阅读器图片/章节数据 staleTime (ms) |
+| `VITE_CRAWL_POLL_INTERVAL` | int | `2000` | 下载进度轮询间隔 (ms，搜索详情/藏书阁详情/章节重试通用) |
+| `VITE_API_BASE` | string | `/api` | API 基础路径（子路径/独立域名部署时覆盖） |
 
 ### 3.3 开发代理（仅 `pnpm dev` 生效）
 
@@ -188,6 +218,7 @@ Vite 构建时注入，仅 `VITE_` 前缀变量暴露给客户端。
 | `web` mem_limit | `512m` | Django 容器内存限制 |
 | `rust_downloader` mem_limit | `64m` | Rust 容器内存限制 |
 | `nginx` mem_limit | `128m` | Nginx 容器内存限制 |
+| rust `DECODE_CONCURRENCY` | `10` | 显式注入的反混淆并发数 |
 
 ---
 
@@ -195,39 +226,11 @@ Vite 构建时注入，仅 `VITE_` 前缀变量暴露给客户端。
 
 ### `rust-downloader/config.example.toml`
 
-```toml
-# JM Downloader 配置
-# 复制为 config.toml 后按需修改
-# 所有字段均可被同名环境变量覆盖（大写 + 下划线）
+仓库内已提供，字段与 §1 一致。
 
-[server]
-listen_addr = "0.0.0.0:3080"
-log_level = "info"              # trace | debug | info | warn | error
+### `.env.example`
 
-[redis]
-url = "redis://127.0.0.1:6379/0"
-
-[storage]
-media_root = "./media"          # 需与 Django MEDIA_ROOT 指向同一目录
-
-[download]
-max_concurrency = 50            # 全局并发连接池大小
-timeout_secs = 30               # 单请求超时
-retry_times = 5                 # 单张图片最大重试
-jitter_cap_ms = 2000            # 全抖动退避上限 (ms)
-
-[task]
-cleanup_on_failure = true       # 失败时删除不完整文件
-retention_secs = 3600           # 已结束任务内存保留时长
-max_queued = 200                # 排队上限，超出返回 503
-
-[scanner]
-interval_secs = 60              # Redis 队列轮询间隔
-```
-
-### `.env.example`（Django，已有，需更新）
-
-见项目根目录 `.env.example`。
+项目根目录 `.env.example`，与 §2 全部字段同步，不含 Celery 遗留项。
 
 ### `frontend/.env.example`
 
@@ -245,6 +248,9 @@ VITE_QUERY_STALE_TIME=30000
 VITE_QUERY_RETRY=1
 VITE_READER_STALE_TIME=300000
 VITE_CRAWL_POLL_INTERVAL=2000
+
+# API 基础路径（默认 /api）
+# VITE_API_BASE=/api
 ```
 
 ---

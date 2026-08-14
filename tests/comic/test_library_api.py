@@ -60,6 +60,27 @@ class TestAlbumDelete:
         assert not Album.objects.filter(id=album.id).exists()
 
 
+class TestLibraryAuthors:
+    def test_author_counts(self, auth_client, album, photo, photo2):
+        resp = auth_client.get(reverse("album-authors"))
+        assert resp.status_code == 200
+        authors = {a["author"]: a["count"] for a in resp.data["authors"]}
+        assert authors.get("测试作者") == 1
+
+    def test_author_counts_album_not_duplicated(self, auth_client, album, photo):
+        # 同一专辑有多张已下载章节时，作品数只算 1
+        Photo.objects.create(
+            album=album,
+            jm_id="88888",
+            name="第三章",
+            sort_index=3,
+            is_downloaded=True,
+        )
+        resp = auth_client.get(reverse("album-authors"))
+        authors = {a["author"]: a["count"] for a in resp.data["authors"]}
+        assert authors.get("测试作者") == 1
+
+
 class TestCheckUpdates:
     def test_requires_auth(self, api_client, album):
         resp = api_client.post(reverse("album-check-updates", args=[album.id]))

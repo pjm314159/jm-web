@@ -13,6 +13,7 @@ import contextlib
 import logging
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 from django.conf import settings
@@ -26,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 # Redis key 前缀：crawl_id → 任务信息
 _CRAWL_KEY = "jmw-crawl-{crawl_id}"
-_CRAWL_TTL = 3600 * 24  # 24h 过期
+_CRAWL_INDEX_KEY = "jmw-crawl-index"
+_CRAWL_TTL = settings.CRAWL_STATE_TTL  # 任务状态过期（默认 24h）
 
 # ------------------------------------------------------------------
 # httpx 连接池（模块级单例，复用 TCP 连接）
@@ -40,8 +42,11 @@ def _get_rust_client() -> httpx.Client:
     if _rust_client is None or _rust_client.is_closed:
         _rust_client = httpx.Client(
             base_url=settings.RUST_DOWNLOADER_URL,
-            timeout=15,
-            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            timeout=settings.RUST_REQUEST_TIMEOUT,
+            limits=httpx.Limits(
+                max_connections=settings.RUST_HTTP_MAX_CONNECTIONS,
+                max_keepalive_connections=settings.RUST_HTTP_MAX_KEEPALIVE,
+            ),
         )
     return _rust_client
 
@@ -126,7 +131,16 @@ def _safe_images(photo_detail) -> list[dict]:
         if not is_safe_filename(getattr(img, "filename", "")):
             logger.warning("跳过不安全的图片文件名: %r", getattr(img, "filename", ""))
             continue
-        images.append({"url": img.download_url, "filename": img.filename})
+        filename = img.filename
+        # GIF 是原始图片，无需反混淆（与 jmcomic decide_download_image_decode 一致）
+        is_gif = getattr(img, "is_gif", False) or filename.lower().endswith(".gif")
+        images.append(
+            {
+                "url": img.download_url,
+                "filename": filename,
+                "no_descramble": is_gif,
+            }
+        )
     return images
 
 
@@ -188,6 +202,9 @@ def _submit_album(crawl_id: str, jm_id: str) -> dict:
     cover_url = jm_sync.get_album_cover_url(jm_id)
     cover_added = False
 
+    # 先顺序准备全部提交条目（DB 写入与路径计算保持串行，避免 SQLite 锁竞争），
+    # 再并发提交 Rust，缩短大本子提交阶段的串行网络往返
+    submissions = []
     for p_id in pending_pids:
         photo_detail = photo_details.get(p_id)
         if photo_detail is None:
@@ -209,10 +226,20 @@ def _submit_album(crawl_id: str, jm_id: str) -> dict:
         scramble_id = str(getattr(photo_detail, "scramble_id", "220980"))
         aid = str(p_id)
         task_id = f"{crawl_id}-{p_id}"
+        submissions.append((task_id, save_dir, scramble_id, aid, images))
 
-        if _submit_to_rust(task_id, save_dir, scramble_id, aid, images):
-            task_ids.append(task_id)
-            submitted += 1
+    submit_concurrency = max(1, settings.JM_DOWNLOAD_PHOTO_CONCURRENCY)
+    with ThreadPoolExecutor(max_workers=submit_concurrency) as pool:
+        futures = [pool.submit(_submit_to_rust, *item) for item in submissions]
+        for task_id, future in zip((item[0] for item in submissions), futures, strict=True):
+            try:
+                ok = future.result()
+            except Exception as e:  # _submit_to_rust 已兜底，这里仅防御
+                logger.error("提交任务异常 [%s]: %s", task_id, e)
+                ok = False
+            if ok:
+                task_ids.append(task_id)
+                submitted += 1
 
     # 存 Redis 供状态查询
     _save_crawl_info(crawl_id, jm_id, "album", task_ids, len(episodes))
@@ -344,6 +371,76 @@ def get_crawl_status(crawl_id: str) -> dict:
     return result
 
 
+def _query_rust_tasks_batch() -> dict[str, dict] | None:
+    """一次请求获取 Rust 全部任务状态（task_id -> {status, done, total}）。"""
+    try:
+        resp = _get_rust_client().get("/api/v1/download/tasks")
+        if resp.status_code == 200:
+            data = resp.json()
+            return {t["task_id"]: t for t in data.get("tasks", [])}
+    except Exception as e:
+        logger.warning("查询 Rust 任务列表失败: %s", e)
+    return None
+
+
+def list_active_crawls() -> dict:
+    """C2+：返回仍在下载中的任务列表（按 Redis 索引聚合 Rust 状态）。"""
+    rust_tasks = _query_rust_tasks_batch()
+    if rust_tasks is None:
+        return {"tasks": [], "count": 0, "error": "下载服务不可达"}
+
+    active = []
+    for crawl_id in cache.get(_CRAWL_INDEX_KEY) or set():
+        info = cache.get(_CRAWL_KEY.format(crawl_id=crawl_id))
+        if info is None:
+            continue
+
+        task_ids = info.get("task_ids") or []
+        total_chapters = info.get("total") or len(task_ids)
+        done_chapters = 0
+        failed_chapters = 0
+        images_done = 0
+        images_total = 0
+        any_running = False
+
+        for tid in task_ids:
+            st = rust_tasks.get(tid)
+            if st is None:
+                continue
+            status = st.get("status", "")
+            if status in ("queued", "downloading"):
+                any_running = True
+            elif status == "completed":
+                done_chapters += 1
+            elif status == "failed":
+                failed_chapters += 1
+            images_done += st.get("done", 0)
+            images_total += st.get("total", 0)
+
+        # 没有任何章节仍在执行说明已结束（或已被 Rust 淘汰），不进入“正在下载”
+        if not any_running:
+            continue
+
+        state = "PROGRESS" if done_chapters > 0 or images_done > 0 else "DOWNLOADING"
+        active.append(
+            {
+                "crawl_id": crawl_id,
+                "jm_id": info.get("jm_id"),
+                "jm_type": info.get("jm_type"),
+                "state": state,
+                "progress": {
+                    "chapters_done": done_chapters,
+                    "chapters_total": total_chapters,
+                    "images_done": images_done,
+                    "images_total": images_total,
+                },
+            }
+        )
+
+    active.sort(key=lambda t: (0 if t["state"] == "PROGRESS" else 1, t["crawl_id"]))
+    return {"tasks": active, "count": len(active)}
+
+
 # ------------------------------------------------------------------
 # 内部辅助
 # ------------------------------------------------------------------
@@ -353,6 +450,10 @@ def _save_crawl_info(crawl_id: str, jm_id: str, jm_type: str, task_ids: list, to
         {"jm_id": jm_id, "jm_type": jm_type, "task_ids": task_ids, "total": total},
         timeout=_CRAWL_TTL,
     )
+    # 维护任务索引（与任务状态同 TTL），供“正在下载”列表遍历
+    index = set(cache.get(_CRAWL_INDEX_KEY) or [])
+    index.add(crawl_id)
+    cache.set(_CRAWL_INDEX_KEY, index, timeout=_CRAWL_TTL)
 
 
 def _mark_downloaded(task_id: str, info: dict | None = None):

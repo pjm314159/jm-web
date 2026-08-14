@@ -142,6 +142,20 @@ class CrawlTaskStatusView(APIView):
         return Response(result)
 
 
+class CrawlTasksListView(APIView):
+    """C2+：列出所有仍在下载中的任务。"""
+
+    def get(self, request):
+        try:
+            data = crawl_service.list_active_crawls()
+        except Exception as e:
+            logger.exception("获取下载任务列表失败")
+            return Response(
+                {"error": f"获取任务列表失败: {e!s}"}, status=status.HTTP_502_BAD_GATEWAY
+            )
+        return Response(data)
+
+
 class CrawlCallbackView(APIView):
     """C3：Rust 下载完成回调（内部接口，立即写入 DB）。"""
 

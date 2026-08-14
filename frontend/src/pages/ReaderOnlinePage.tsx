@@ -15,6 +15,7 @@ import { getSearchAlbumEpisodes, getSearchPhotoImages } from '../api/search'
 import type { SearchReaderImage } from '../api/search'
 import CommentSection from '../components/CommentSection'
 import { setPageTitle } from '../lib/usePageTitle'
+import { READER_CONFIG } from '../lib/readerConfig'
 import { WasmComicImage } from '../components/reader/WasmComicImage'
 import { useVirtualImages } from '../components/reader/useVirtualImages'
 import {
@@ -67,7 +68,7 @@ export default function ReaderOnlinePage({
     queryKey: ['reader-online', photoId, page],
     queryFn: () => getSearchPhotoImages(photoId!, page),
     enabled: !!photoId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: READER_CONFIG.READER_STALE_TIME,
   })
 
   /* S3：章节列表（面板 + 上/下一话导航），依赖 S4 返回的 album_id */
@@ -76,7 +77,7 @@ export default function ReaderOnlinePage({
     queryKey: ['reader-episodes', albumId],
     queryFn: () => getSearchAlbumEpisodes(albumId),
     enabled: !!albumId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: READER_CONFIG.READER_STALE_TIME,
   })
 
   /* 切章/切页回到顶部 */

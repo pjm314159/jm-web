@@ -64,6 +64,22 @@ def search_tag(
     )
 
 
+def search_author(
+    query: str,
+    page: int = 1,
+    order_by: str = JmMagicConstants.ORDER_BY_LATEST,
+    time: str = JmMagicConstants.TIME_ALL,
+    category: str = JmMagicConstants.CATEGORY_ALL,
+    sub_category: str | None = None,
+):
+    """作者搜索（JmSearchPage，与 search_tag 同构）。"""
+    return run_on_loop(
+        jm_async.search_author(
+            query, page, order_by=order_by, time=time, category=category, sub_category=sub_category
+        )
+    )
+
+
 def fetch_album_comments(album_id: str, page: int = 1):
     """获取本子评论分页（JmAlbumCommentPage，含嵌套 replies）。"""
     return run_on_loop(jm_async.fetch_album_comments(album_id, page))

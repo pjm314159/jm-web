@@ -20,14 +20,15 @@ from collections.abc import Coroutine
 from typing import Any
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from jmcomic import (
     JmcomicException,
     JmcomicText,
     JmMagicConstants,
-    JmOption,
     JsonResolveFailException,
     MissingAlbumPhotoException,
     RequestRetryAllFailException,
+    create_option_by_str,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,23 @@ def map_jm_exception(exc: JmcomicException) -> JmAsyncError:
     if isinstance(exc, JsonResolveFailException):
         return JmAsyncError(f"响应解析失败: {exc}", exc)
     return JmAsyncError(f"jmcomic 错误: {exc}", exc)
+
+
+def _build_option():
+    """用 jmcomic 原生的 option 字符串机制构建，仅包含本项目需要的参数。"""
+    lines = [
+        "client:",
+        f"  timeout: {settings.JM_OPTION_TIMEOUT}",
+        f"  retry_times: {settings.JM_OPTION_RETRY_TIMES}",
+    ]
+    if settings.JM_OPTION_DOMAINS:
+        lines.append("  domain:")
+        lines.extend(f"    - {domain}" for domain in settings.JM_OPTION_DOMAINS)
+    if settings.PROXY:
+        lines.append("  postman:")
+        lines.append("    meta_data:")
+        lines.append(f'      proxies: "{settings.PROXY}"')
+    return create_option_by_str("\n".join(lines))
 
 
 # ------------------------------------------------------------------
@@ -82,7 +100,7 @@ async def _get_client():
     if _client is None:
         async with _client_lock:
             if _client is None:
-                _client = await JmOption.default().new_jm_async_client().__aenter__()
+                _client = await _build_option().new_jm_async_client().__aenter__()
                 logger.info("全局 jmcomic 异步客户端已创建")
     return _client
 
@@ -178,6 +196,29 @@ async def search_tag(
     client = await _get_client()
     try:
         return await client.search_tag(
+            search_query=query,
+            page=page,
+            order_by=order_by,
+            time=time,
+            category=category,
+            sub_category=sub_category,
+        )
+    except JmcomicException as e:
+        raise map_jm_exception(e) from e
+
+
+async def search_author(
+    query: str,
+    page: int = 1,
+    order_by: str = JmMagicConstants.ORDER_BY_LATEST,
+    time: str = JmMagicConstants.TIME_ALL,
+    category: str = JmMagicConstants.CATEGORY_ALL,
+    sub_category: str | None = None,
+):
+    """作者搜索（JmSearchPage，结构与关键字/标签一致）。"""
+    client = await _get_client()
+    try:
+        return await client.search_author(
             search_query=query,
             page=page,
             order_by=order_by,

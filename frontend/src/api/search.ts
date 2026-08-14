@@ -34,7 +34,7 @@ export interface SearchResponse {
   error: string | null
 }
 
-export type SearchType = 'keyword' | 'tag'
+export type SearchType = 'keyword' | 'tag' | 'author'
 
 /** Sorting orders, mirroring jmcomic JmMagicConstants.ORDER_BY_*. */
 export type SearchOrderBy =
@@ -148,6 +148,8 @@ export async function getSearchAlbumEpisodes(jmId: string): Promise<SearchEpisod
 export interface SearchReaderImage {
   url: string
   num: number
+  /** GIF 是原始图片，前端应直接 <img> 渲染，不走 WASM 反混淆 */
+  is_gif?: boolean
 }
 
 /** S4 在线阅读器响应（300 图/页）。 */

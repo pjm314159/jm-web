@@ -30,6 +30,7 @@ JmWebProject/media/videos/
 
 # 环境变量（含密钥，不提交）
 .env
+config.toml
 
 # IDE
 .idea/

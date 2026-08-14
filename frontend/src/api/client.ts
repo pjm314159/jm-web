@@ -2,6 +2,9 @@ import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 
 import { tokenStorage } from '../lib/tokenStorage'
 
+/** API 基础路径（部署到子路径/独立域名时用 VITE_API_BASE 覆盖） */
+const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/+$/u, '')
+
 /**
  * 全局 axios 实例：
  * - baseURL 为 /api，开发环境经 Vite 代理转发到 Django（localhost:8000）
@@ -9,7 +12,7 @@ import { tokenStorage } from '../lib/tokenStorage'
  * - 响应拦截器在 401 时尝试用 refresh token 续期，失败则清空凭证
  */
 export const apiClient = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
 })
 
 apiClient.interceptors.request.use((config) => {
@@ -67,7 +70,7 @@ apiClient.interceptors.response.use(
     isRefreshing = true
     try {
       // 用裸 axios 刷新，避免触发本实例拦截器造成循环
-      const { data } = await axios.post('/api/auth/token/refresh/', { refresh })
+      const { data } = await axios.post(`${API_BASE}/auth/token/refresh/`, { refresh })
       const newAccess: string = data.access
       tokenStorage.setAccess(newAccess)
       flushQueue(newAccess)

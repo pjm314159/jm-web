@@ -2,7 +2,7 @@
 FROM python:3.12-slim
 
 # 安装 uv
-# 默认走清华镜像：本机 Docker 代理（127.0.0.1:10808）会截断 PyPI 官方 CDN 的大文件下载，
+# 默认走清华镜像
 # 而 pip 会校验索引提供的哈希，导致构建失败；可通过 --build-arg PIP_INDEX_URL 覆盖。
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 RUN pip install --no-cache-dir --index-url "$PIP_INDEX_URL" uv
@@ -36,4 +36,6 @@ RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # 设置容器启动入口
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["gunicorn", "JmWebProject.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2"]
+# --timeout 0：关闭 worker 超时，避免网络不稳定时 jmcomic 重试期间
+# gunicorn 强杀 worker 导致后端崩溃（详见 config.md）
+CMD ["gunicorn", "JmWebProject.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "0"]

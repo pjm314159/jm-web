@@ -19,8 +19,8 @@ from . import jm_sync
 
 logger = logging.getLogger(__name__)
 
-IMAGES_PER_PAGE = 300
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+IMAGES_PER_PAGE = settings.IMAGES_PER_PAGE
 
 
 def get_library_albums():
@@ -84,27 +84,26 @@ def get_all_library_authors(q: str = "", limit: int = 10) -> list[dict]:
     - 无 q 时返回作品数最多的前 limit 个作者
     - 有 q 时返回所有包含 q 的作者
     """
-    from collections import Counter
+    from django.db.models import Count
 
-    counter: Counter = Counter()
-    for author in (
-        Album.objects.filter(photos__is_downloaded=True)
-        .exclude(author__isnull=True)
-        .exclude(author="")
-        .values_list("author", flat=True)
-        .distinct()
-    ):
-        if author:
-            counter[author] += (
-                Album.objects.filter(photos__is_downloaded=True, author=author).distinct().count()
-            )
+    # 单条聚合查询取代“每作者一次 count”的 N+1
+    author_counts = {
+        row["author"]: row["count"]
+        for row in (
+            Album.objects.filter(photos__is_downloaded=True)
+            .exclude(author__isnull=True)
+            .exclude(author="")
+            .values("author")
+            .annotate(count=Count("id", distinct=True))
+        )
+    }
 
     if q:
         kw = q.lower()
-        items = [(a, cnt) for a, cnt in counter.items() if kw in a.lower()]
+        items = [(a, cnt) for a, cnt in author_counts.items() if kw in a.lower()]
         items.sort(key=lambda x: -x[1])
     else:
-        items = counter.most_common(limit)
+        items = sorted(author_counts.items(), key=lambda x: -x[1])[:limit]
 
     return [{"author": a, "count": cnt} for a, cnt in items]
 

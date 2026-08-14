@@ -14,6 +14,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getAlbumDetail, getPhotoReader } from '../api/library'
 import CommentSection from '../components/CommentSection'
 import { setPageTitle } from '../lib/usePageTitle'
+import { READER_CONFIG } from '../lib/readerConfig'
 import { LocalComicImage } from '../components/reader/ComicImage'
 import {
   ChevronLeftIcon,
@@ -61,7 +62,7 @@ export default function ReaderLibraryPage({
     queryKey: ['reader-library', photoId, page],
     queryFn: () => getPhotoReader(Number(photoId), page),
     enabled: !!photoId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: READER_CONFIG.READER_STALE_TIME,
   })
 
   /* L2：本子详情（章节面板 + 本子名），依赖 L5 返回的 album_id */
@@ -70,7 +71,7 @@ export default function ReaderLibraryPage({
     queryKey: ['library-detail', String(albumId)],
     queryFn: () => getAlbumDetail(albumId!),
     enabled: !!albumId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: READER_CONFIG.READER_STALE_TIME,
   })
 
   /* 切章/切页回到顶部 */

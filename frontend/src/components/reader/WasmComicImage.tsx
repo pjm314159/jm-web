@@ -97,12 +97,21 @@ export const WasmComicImage = memo(function WasmComicImage({
         </div>
       )}
 
-      {/* done：canvas 渲染（max-w-full + h-auto：超宽图等比缩放铺满屏宽） */}
-      <canvas
-        ref={canvasRef}
-        className="block h-auto max-w-full"
-        style={status === 'done' ? undefined : { display: 'none' }}
-      />
+      {/* done：GIF 等原始图片直接 <img> 渲染（保留动画）；普通图片 canvas 渲染 */}
+      {status === 'done' && entry.rawUrl ? (
+        <img
+          src={entry.rawUrl}
+          alt=""
+          loading="lazy"
+          className="block h-auto max-w-full"
+        />
+      ) : (
+        <canvas
+          ref={canvasRef}
+          className="block h-auto max-w-full"
+          style={status === 'done' ? undefined : { display: 'none' }}
+        />
+      )}
     </div>
   )
 })

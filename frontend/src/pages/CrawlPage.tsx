@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { AxiosError } from 'axios'
 
-import { getCrawlTaskStatus, submitCrawl } from '../api/crawl'
+import { getCrawlTaskStatus, getCrawlTasks, submitCrawl } from '../api/crawl'
 
 /**
  * 爬虫中心（基于旧 crawl_form.html 重构）：
@@ -123,6 +123,13 @@ export default function CrawlPage() {
       const state = query.state.data?.state
       return state === 'SUCCESS' || state === 'PARTIAL' || state === 'FAILED' ? false : 1500
     },
+  })
+
+  // 所有正在下载的任务（轮询刷新）
+  const { data: activeTasks } = useQuery({
+    queryKey: ['crawl-tasks'],
+    queryFn: getCrawlTasks,
+    refetchInterval: 3000,
   })
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -268,6 +275,60 @@ export default function CrawlPage() {
                 Task ID: {taskId}
               </p>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* 正在下载列表 */}
+      <div className="mt-6 rounded-3xl border border-white/40 bg-white/40 p-6 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-800/50">
+        <div className="mb-4 flex items-center gap-2">
+          <DownloadIcon className="h-5 w-5 text-indigo-500" />
+          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">正在下载</h2>
+          <span className="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-xs font-bold text-indigo-600 dark:text-indigo-400">
+            {activeTasks?.count ?? 0}
+          </span>
+        </div>
+
+        {activeTasks?.error ? (
+          <p className="text-sm text-rose-500">下载服务不可达，请稍后重试</p>
+        ) : !activeTasks || activeTasks.tasks.length === 0 ? (
+          <p className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">
+            暂无进行中的下载
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {activeTasks.tasks.map((task) => (
+              <div
+                key={task.crawl_id}
+                className="rounded-2xl border border-white/40 bg-white/30 p-4 backdrop-blur-md dark:border-white/10 dark:bg-slate-800/40"
+              >
+                <div className="mb-2.5 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    disabled={task.jm_type !== 'album'}
+                    onClick={
+                      task.jm_type === 'album'
+                        ? () => window.open(`/search/album/${task.jm_id}`, '_blank')
+                        : undefined
+                    }
+                    className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-700 transition-colors hover:text-indigo-600 disabled:cursor-default disabled:hover:text-slate-700 dark:text-slate-200 dark:hover:text-indigo-400 dark:disabled:hover:text-slate-200"
+                  >
+                    <span className="h-2 w-2 shrink-0 animate-ping rounded-full bg-indigo-500 dark:bg-indigo-400" />
+                    <span className="truncate">JM-{task.jm_id}</span>
+                  </button>
+                  <span className="shrink-0 rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+                    {task.jm_type === 'album' ? '本子' : '章节'}
+                  </span>
+                </div>
+                <ProgressBar
+                  current={task.progress.chapters_done}
+                  total={task.progress.chapters_total}
+                />
+                <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
+                  图片 {task.progress.images_done} / {task.progress.images_total}
+                </p>
+              </div>
+            ))}
           </div>
         )}
       </div>

@@ -89,6 +89,7 @@ interface DropdownOption<T extends string> {
 const SEARCH_TYPES: DropdownOption<SearchType>[] = [
   { value: 'keyword', label: '关键词' },
   { value: 'tag', label: '标签' },
+  { value: 'author', label: '作者' },
 ]
 
 /** 排序方式选项（对应 jmcomic JmMagicConstants.ORDER_BY_*）。 */
@@ -351,7 +352,12 @@ export default function SearchPage() {
 
   // 搜索状态以 URL 查询参数为准（q/type/page/order_by/time/category/sub_category）
   const urlQ = searchParams.get('q') ?? ''
-  const urlType: SearchType = searchParams.get('type') === 'tag' ? 'tag' : 'keyword'
+  const urlType: SearchType =
+    searchParams.get('type') === 'tag'
+      ? 'tag'
+      : searchParams.get('type') === 'author'
+        ? 'author'
+        : 'keyword'
   const urlPage = Number(searchParams.get('page')) || 1
   const rawOrderBy = searchParams.get('order_by')
   const rawTime = searchParams.get('time')

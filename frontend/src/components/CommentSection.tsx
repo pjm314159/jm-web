@@ -82,6 +82,13 @@ function SpinnerIcon({ className = '' }: { className?: string }) {
     </svg>
   )
 }
+function ChevronDownIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+    </svg>
+  )
+}
 
 /* ─── 单条评论（递归渲染嵌套回复） ────────────────────── */
 function CommentItem({
@@ -177,11 +184,18 @@ function CommentItem({
 export default function CommentSection({
   jmId,
   showHeader = true,
+  collapsible = false,
+  defaultCollapsed = false,
 }: {
   jmId: string
   /** 嵌入抽屉等已有标题的容器时可隐藏自带标题栏，避免重复标题与多余间距 */
   showHeader?: boolean
+  /** 标题栏可点击展开/收起（本地库详情页用），默认展开 */
+  collapsible?: boolean
+  /** collapsible 时初始是否收起 */
+  defaultCollapsed?: boolean
 }) {
+  const [open, setOpen] = useState(!collapsible || !defaultCollapsed)
   const [pages, setPages] = useState<AlbumComment[][]>([])
   const [total, setTotal] = useState<number | null>(null)
   const [hasNext, setHasNext] = useState(true)
@@ -193,7 +207,7 @@ export default function CommentSection({
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   const loadMore = useCallback(async () => {
-    if (loadingRef.current || !hasNext) return
+    if (!open || loadingRef.current || !hasNext) return
     loadingRef.current = true
     setLoading(true)
     setError(null)
@@ -209,7 +223,7 @@ export default function CommentSection({
       loadingRef.current = false
       setLoading(false)
     }
-  }, [jmId, hasNext])
+  }, [jmId, hasNext, open])
 
   // 哨兵进入视口自动加载下一页
   useEffect(() => {
@@ -243,22 +257,50 @@ export default function CommentSection({
   return (
     <section className={showHeader ? 'mt-12' : ''}>
       {/* 标题栏 */}
-      {showHeader && (
-        <div className="mb-5 flex items-center gap-3">
-          <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
-            <ReplyIcon className="h-5 w-5 text-indigo-500" />
-            评论
-          </h2>
-          {total !== null && total > 0 && (
-            <span className="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-xs font-bold text-indigo-600 dark:text-indigo-400">
-              {total}
-            </span>
-          )}
-        </div>
-      )}
+      {showHeader &&
+        (collapsible ? (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className="mb-5 flex w-full items-center gap-3 text-left transition-colors hover:text-indigo-600 dark:hover:text-indigo-400"
+          >
+            <h2 className="flex flex-1 items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+              <ReplyIcon className="h-5 w-5 text-indigo-500" />
+              评论
+            </h2>
+            {total !== null && total > 0 && (
+              <span className="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                {total}
+              </span>
+            )}
+            <ChevronDownIcon
+              className={`h-4 w-4 text-slate-400 transition-transform duration-300 ${open ? 'rotate-180' : ''}`}
+            />
+          </button>
+        ) : (
+          <div className="mb-5 flex items-center gap-3">
+            <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+              <ReplyIcon className="h-5 w-5 text-indigo-500" />
+              评论
+            </h2>
+            {total !== null && total > 0 && (
+              <span className="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                {total}
+              </span>
+            )}
+          </div>
+        ))}
 
-      {/* 评论列表（液态玻璃卡片） */}
-      <div className="rounded-3xl border border-white/40 bg-white/30 p-5 backdrop-blur-md dark:border-white/10 dark:bg-slate-800/40 sm:p-6">
+      {/* 可折叠内容区（grid-rows 高度动画） */}
+      <div
+        className={`grid transition-[grid-template-rows] duration-300 ease-out ${
+          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          {/* 评论列表（液态玻璃卡片） */}
+          <div className="rounded-3xl border border-white/40 bg-white/30 p-5 backdrop-blur-md dark:border-white/10 dark:bg-slate-800/40 sm:p-6">
         {started && loadedCount > 0 && (
           <div className="flex flex-col gap-6">
             {pages.flat().map((comment, i) => (
@@ -308,10 +350,12 @@ export default function CommentSection({
             已加载全部评论
           </div>
         )}
-      </div>
+          </div>
 
-      {/* 滚动加载哨兵 */}
-      <div ref={sentinelRef} className="h-px" />
+          {/* 滚动加载哨兵 */}
+          <div ref={sentinelRef} className="h-px" />
+        </div>
+      </div>
     </section>
   )
 }

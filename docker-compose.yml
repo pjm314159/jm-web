@@ -46,6 +46,8 @@ services:
       - RETRY_TIMES=5
       - JITTER_CAP_MS=2000
       - TIMEOUT_SECS=30
+      - DECODE_CONCURRENCY=10
+      - PROXY=${PROXY:-}
       - SCAN_INTERVAL_SECS=60
       - CLEANUP_ON_FAILURE=true
       - TASK_RETENTION_SECS=3600

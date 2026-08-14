@@ -19,13 +19,13 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() in ("true", "1", "yes")
 
 # 1. 登录模块配置
-SESSION_COOKIE_AGE = 604800
+SESSION_COOKIE_AGE = int(os.environ.get("SESSION_COOKIE_AGE", "604800"))
 AUTH_USER_MODEL = "user.User"
 
 # 2. 媒体文件配置 (用于存储爬取图片)
 BASE_DIR = Path(__file__).resolve().parent.parent
 MEDIA_URL = "/media/"
-MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+MEDIA_ROOT = os.environ.get("MEDIA_ROOT", os.path.join(BASE_DIR, "media"))
 
 # 3. Redis / 下载模块配置
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
@@ -36,13 +36,49 @@ JM_DOWNLOAD_PHOTO_CONCURRENCY = int(os.environ.get("JM_DOWNLOAD_PHOTO_CONCURRENC
 RUST_DOWNLOADER_URL = os.environ.get("RUST_DOWNLOADER_URL", "http://127.0.0.1:3080")
 # Rust 下载完成后的回调地址（Docker 内为 http://web:8000）
 CRAWL_CALLBACK_URL = os.environ.get("CRAWL_CALLBACK_URL", "http://127.0.0.1:8000")
+# Django→Rust HTTP 请求超时与连接池
+RUST_REQUEST_TIMEOUT = int(os.environ.get("RUST_REQUEST_TIMEOUT", "15"))
+RUST_HTTP_MAX_CONNECTIONS = int(os.environ.get("RUST_HTTP_MAX_CONNECTIONS", "10"))
+RUST_HTTP_MAX_KEEPALIVE = int(os.environ.get("RUST_HTTP_MAX_KEEPALIVE", "5"))
+# 下载任务状态缓存过期时间（秒）
+CRAWL_STATE_TTL = int(os.environ.get("CRAWL_STATE_TTL", str(3600 * 24)))
+
+# jmcomic 客户端配置
+JM_OPTION_TIMEOUT = int(os.environ.get("JM_OPTION_TIMEOUT", "30"))
+JM_OPTION_RETRY_TIMES = int(os.environ.get("JM_OPTION_RETRY_TIMES", "5"))
+JM_OPTION_DOMAINS = [
+    d.strip() for d in os.environ.get("JM_OPTION_DOMAINS", "").split(",") if d.strip()
+] or None
+# 代理地址（jmcomic 与 Rust 下载服务共用，留空/不设置则不使用代理）
+PROXY = os.environ.get("PROXY", "").strip() or None
+
+# 阅读器/搜索分页与缓存 TTL
+IMAGES_PER_PAGE = int(os.environ.get("IMAGES_PER_PAGE", "300"))
+LIST_PAGE_SIZE = int(os.environ.get("LIST_PAGE_SIZE", "30"))
+SEARCH_CACHE_TTL = int(os.environ.get("SEARCH_CACHE_TTL", "120"))
+DETAIL_CACHE_TTL = int(os.environ.get("DETAIL_CACHE_TTL", "120"))
+COMMENT_CACHE_TTL = int(os.environ.get("COMMENT_CACHE_TTL", "60"))
+ANON_THROTTLE_RATE = os.environ.get("ANON_THROTTLE_RATE", "30/min")
+
+# 本地媒体扩展名（逗号分隔，含点）
+LOCAL_IMAGE_EXTS = [
+    e.strip()
+    for e in os.environ.get("LOCAL_IMAGE_EXTS", ".jpg,.jpeg,.png,.webp,.gif").split(",")
+    if e.strip()
+]
+LOCAL_VIDEO_EXTS = [
+    e.strip()
+    for e in os.environ.get("LOCAL_VIDEO_EXTS", ".mp4,.webm,.mov,.mkv").split(",")
+    if e.strip()
+]
 
 # 5. 缓存配置 (Redis)
+CACHE_DEFAULT_TIMEOUT = int(os.environ.get("CACHE_DEFAULT_TIMEOUT", "300"))
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
-        "TIMEOUT": 300,
+        "TIMEOUT": CACHE_DEFAULT_TIMEOUT,
         "KEY_PREFIX": "jmw",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
@@ -129,10 +165,10 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.MultiPartParser",
     ),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 30,
+    "PAGE_SIZE": LIST_PAGE_SIZE,
     "DEFAULT_THROTTLE_CLASSES": ("rest_framework.throttling.AnonRateThrottle",),
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "30/min",
+        "anon": ANON_THROTTLE_RATE,
     },
 }
 
@@ -176,11 +212,11 @@ WSGI_APPLICATION = "JmWebProject.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db/db.sqlite3",
+        "NAME": os.environ.get("DB_NAME", str(BASE_DIR / "db" / "db.sqlite3")),
         "OPTIONS": {
-            "timeout": 5,
+            "timeout": int(os.environ.get("DB_TIMEOUT", "5")),
         },
-        "CONN_MAX_AGE": 60,
+        "CONN_MAX_AGE": int(os.environ.get("DB_CONN_MAX_AGE", "60")),
     }
 }
 

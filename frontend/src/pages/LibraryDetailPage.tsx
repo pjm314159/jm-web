@@ -17,6 +17,8 @@ import {
   type CheckUpdateResult,
 } from '../api/library'
 import { getCrawlTaskStatus, submitCrawl } from '../api/crawl'
+import CommentSection from '../components/CommentSection'
+import { READER_CONFIG } from '../lib/readerConfig'
 import { setPageTitle } from '../lib/usePageTitle'
 
 /* ─── 图标 ──────────────────────────────────────────────── */
@@ -198,7 +200,7 @@ export default function LibraryDetailPage() {
             setUpdateMsg(`下载中 ${st.progress.images_done}/${st.progress.images_total} 张`)
           }
         } catch { /* 轮询失败静默忽略 */ }
-      }, 2000)
+      }, READER_CONFIG.CRAWL_POLL_INTERVAL)
     } catch {
       setUpdating(false)
       setUpdateMsg('提交失败，请稍后重试')
@@ -234,7 +236,7 @@ export default function LibraryDetailPage() {
             setRetryMsg(`正在重新下载 ${st.progress.images_done}/${st.progress.images_total} 张`)
           }
         } catch { /* 轮询失败静默忽略 */ }
-      }, 2000)
+      }, READER_CONFIG.CRAWL_POLL_INTERVAL)
     } catch {
       setRetryingPhotoId(null)
       setRetryMsg('重新下载提交失败，请稍后重试')
@@ -534,6 +536,9 @@ export default function LibraryDetailPage() {
           </section>
         </main>
       </div>
+
+      {/* 评论区：页面最底部，点击评论区头部展开/收起（样式同搜索详情页） */}
+      {album?.jm_id && <CommentSection jmId={album.jm_id} collapsible defaultCollapsed />}
     </div>
   )
 }

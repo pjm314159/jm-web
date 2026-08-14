@@ -65,6 +65,8 @@ pub struct TaskState {
 /// 全局应用状态
 pub struct AppState {
     pub client: reqwest::Client,
+    /// 图片下载专用 client（配置代理时仅该 client 走代理，回调等内部请求不受影响）
+    pub image_client: reqwest::Client,
     pub semaphore: Arc<Semaphore>,
     /// 反混淆并发信号量；None 表示不限制
     pub decode_semaphore: Option<Arc<Semaphore>>,
@@ -73,31 +75,45 @@ pub struct AppState {
     pub start_time: Instant,
 }
 
+fn build_client(config: &Config, proxy: Option<&str>) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .default_headers({
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                reqwest::header::ACCEPT,
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+                    .parse()
+                    .unwrap(),
+            );
+            headers.insert(
+                reqwest::header::REFERER,
+                "https://18comic.vip/".parse().unwrap(),
+            );
+            headers
+        })
+        .timeout(Duration::from_secs(config.timeout_secs))
+        .pool_max_idle_per_host(config.max_concurrency);
+
+    if let Some(proxy_url) = proxy {
+        match reqwest::Proxy::all(proxy_url) {
+            Ok(proxy) => {
+                builder = builder.proxy(proxy);
+            }
+            Err(e) => {
+                warn!("代理配置无效，忽略代理: {e}");
+            }
+        }
+    }
+
+    builder.build().expect("failed to build HTTP client")
+}
+
 impl AppState {
     pub fn new(config: &Config) -> Self {
-        let client = reqwest::Client::builder()
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            .default_headers({
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    reqwest::header::ACCEPT,
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-                        .parse()
-                        .unwrap(),
-                );
-                headers.insert(
-                    reqwest::header::REFERER,
-                    "https://18comic.vip/".parse().unwrap(),
-                );
-                headers
-            })
-            .timeout(Duration::from_secs(config.timeout_secs))
-            .pool_max_idle_per_host(config.max_concurrency)
-            .build()
-            .expect("failed to build HTTP client");
-
         Self {
-            client,
+            client: build_client(config, None),
+            image_client: build_client(config, config.proxy.as_deref()),
             semaphore: Arc::new(Semaphore::new(config.max_concurrency)),
             decode_semaphore: if config.decode_concurrency == 0 {
                 None
@@ -116,6 +132,23 @@ impl AppState {
             .filter(|t| t.status == TaskStatus::Downloading || t.status == TaskStatus::Queued)
             .count()
     }
+}
+
+/// 汇总全部任务状态（供 Django 聚合“正在下载”列表）。
+pub fn task_summaries(state: &AppState) -> Vec<serde_json::Value> {
+    state
+        .tasks
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "task_id": t.task_id,
+                "status": t.status,
+                "done": t.done,
+                "total": t.total,
+                "failed": t.failed,
+            })
+        })
+        .collect()
 }
 
 /// 异步执行下载任务（tokio::spawn 调用）
@@ -163,7 +196,7 @@ pub async fn execute_download(state: Arc<AppState>, req: DownloadRequest) {
     let mut last_pct = 0u32;
 
     let result = download_chapter(
-        &state.client,
+        &state.image_client,
         &retry_config,
         &state.semaphore,
         state.decode_semaphore.as_ref(),

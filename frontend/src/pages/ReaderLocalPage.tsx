@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { getLocalImages } from '../api/local'
 import { setPageTitle } from '../lib/usePageTitle'
+import { READER_CONFIG } from '../lib/readerConfig'
 import { LocalComicImage } from '../components/reader/ComicImage'
 import {
   ChevronLeftIcon,
@@ -52,7 +53,7 @@ export default function ReaderLocalPage({
     queryKey: ['reader-local', folderName, page],
     queryFn: () => getLocalImages(folderName!, page),
     enabled: !!folderName,
-    staleTime: 5 * 60 * 1000,
+    staleTime: READER_CONFIG.READER_STALE_TIME,
   })
 
   /* 切页回到顶部 */

@@ -15,9 +15,9 @@ from ..utils import build_media_url, natural_sort_key
 
 logger = logging.getLogger(__name__)
 
-IMAGE_PER_PAGE = 300
-IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".gif"]
-VIDEO_EXTS = [".mp4", ".webm", ".mov", ".mkv"]
+IMAGES_PER_PAGE = settings.IMAGES_PER_PAGE
+IMAGE_EXTS = settings.LOCAL_IMAGE_EXTS
+VIDEO_EXTS = settings.LOCAL_VIDEO_EXTS
 
 
 def scan_local_media_folders():
@@ -149,13 +149,13 @@ def get_image_folder(folder_name: str, page=1, jump=None) -> dict | None:
         scan_local_media_folders()
         files = cache.get(cache_key, [])
 
-    paginator = Paginator(files, IMAGE_PER_PAGE)
+    paginator = Paginator(files, IMAGES_PER_PAGE)
     target_jump_index = None
     if jump:
         try:
             jump_index = max(1, int(jump))
             jump_index = min(jump_index, len(files))
-            page = ((jump_index - 1) // IMAGE_PER_PAGE) + 1
+            page = ((jump_index - 1) // IMAGES_PER_PAGE) + 1
             target_jump_index = jump_index
         except ValueError:
             pass

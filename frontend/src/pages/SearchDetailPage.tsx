@@ -12,6 +12,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getCrawlTaskStatus, submitCrawl } from '../api/crawl'
 import { getSearchAlbumDetail } from '../api/search'
 import CommentSection from '../components/CommentSection'
+import { READER_CONFIG } from '../lib/readerConfig'
 import { setPageTitle } from '../lib/usePageTitle'
 
 /* ─── 图标 ──────────────────────────────────────────────── */
@@ -143,7 +144,7 @@ export default function SearchDetailPage() {
       } catch {
         // 轮询失败静默忽略
       }
-    }, 2000)
+    }, READER_CONFIG.CRAWL_POLL_INTERVAL)
   }
 
   const handleDownload = async () => {

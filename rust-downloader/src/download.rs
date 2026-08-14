@@ -7,7 +7,9 @@ use md5::{Digest, Md5};
 use tokio::sync::Semaphore;
 use tracing::{debug, warn};
 
-use crate::retry::{fetch_with_retry, RetryConfig};
+use crate::retry::{
+    fetch_with_retry, image_headers, stream_to_file_with_retry, RetryConfig, IMAGE_DOWNLOAD_TIMEOUT,
+};
 
 /// 单张图片条目
 #[derive(Debug, Clone)]
@@ -56,6 +58,13 @@ fn build_output_path(save_dir: &str, img: &ImageEntry) -> Result<PathBuf, String
         return Err(format!("unsafe filename: {}", img.filename));
     }
     Ok(Path::new(save_dir).join(&img.filename))
+}
+
+/// 与 jmcomic 的 `img_is_not_need_to_decode` 对齐：
+/// URL 去掉查询参数后以 `.gif` 结尾的图片是原始图片，无需反混淆。
+fn is_raw_gif_image(url: &str) -> bool {
+    let path = url.split('?').next().unwrap_or(url);
+    path.to_ascii_lowercase().ends_with(".gif")
 }
 
 /// 计算 JM 混淆切片数（与 jmcomic JmImageTool.get_num 一致）
@@ -168,22 +177,58 @@ async fn download_one(
             .map_err(|e| format!("mkdir: {e}"))?;
     }
 
+    let raw = img.no_descramble || is_raw_gif_image(&img.url) || is_raw_gif_image(&img.filename);
+
+    // 封面、GIF 等无需反混淆的图片：流式写入临时文件，成功后原子改名，
+    // 避免整张图片字节驻留内存
+    if raw {
+        let tmp_path = format!("{path_str}.part");
+        let stream_result = {
+            let _net_permit = net_semaphore
+                .acquire()
+                .await
+                .map_err(|e| format!("semaphore: {e}"))?;
+            stream_to_file_with_retry(
+                client,
+                &img.url,
+                &tmp_path,
+                retry_config,
+                &image_headers(),
+                IMAGE_DOWNLOAD_TIMEOUT,
+            )
+            .await
+        };
+        match stream_result {
+            Ok(()) => {
+                if let Err(e) = tokio::fs::rename(&tmp_path, path_str).await {
+                    let _ = tokio::fs::remove_file(&tmp_path).await;
+                    return Err(format!("rename: {e}"));
+                }
+            }
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&tmp_path).await;
+                return Err(e.to_string());
+            }
+        }
+        return Ok(());
+    }
+
     // 阶段 1：网络下载（受 net_semaphore 限制，IO-bound，内存小）
     let bytes = {
         let _net_permit = net_semaphore
             .acquire()
             .await
             .map_err(|e| format!("semaphore: {e}"))?;
-        fetch_with_retry(client, &img.url, retry_config)
-            .await
-            .map_err(|e| e.to_string())?
+        fetch_with_retry(
+            client,
+            &img.url,
+            retry_config,
+            &image_headers(),
+            IMAGE_DOWNLOAD_TIMEOUT,
+        )
+        .await
+        .map_err(|e| e.to_string())?
     }; // ← net_permit 在此释放
-
-    // 封面等无需反混淆的图片直接保存
-    if img.no_descramble {
-        std::fs::write(path_str, &bytes).map_err(|e| format!("write: {e}"))?;
-        return Ok(());
-    }
 
     // 阶段 2：反混淆+写盘（受 decode_semaphore 限制，CPU-bound，内存大）
     let _decode_permit = match decode_semaphore {
@@ -206,9 +251,15 @@ async fn download_one(
     // 解码失败重试 1 次
     if let Err(e) = descramble_and_save(&bytes, num, path_str) {
         warn!("解码失败 {}，重试: {e}", img.filename);
-        let bytes2 = fetch_with_retry(client, &img.url, retry_config)
-            .await
-            .map_err(|e| e.to_string())?;
+        let bytes2 = fetch_with_retry(
+            client,
+            &img.url,
+            retry_config,
+            &image_headers(),
+            IMAGE_DOWNLOAD_TIMEOUT,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         descramble_and_save(&bytes2, num, path_str)?;
     }
 
@@ -354,6 +405,17 @@ mod tests {
         assert!(!validate_single_component("a\\b.jpg"));
         assert!(!validate_single_component(".hidden.jpg"));
         assert!(!validate_single_component("a\nb.jpg"));
+    }
+
+    #[test]
+    fn test_is_raw_gif_image() {
+        assert!(is_raw_gif_image(
+            "https://cdn-msp2.18comic.vip/media/photos/498976/00027.gif?v=1697541064"
+        ));
+        assert!(is_raw_gif_image("00027.gif"));
+        assert!(is_raw_gif_image("00027.GIF"));
+        assert!(!is_raw_gif_image("00027.jpg?v=123"));
+        assert!(!is_raw_gif_image("00027.webp"));
     }
 
     #[test]

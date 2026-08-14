@@ -94,6 +94,12 @@ async fn get_task_status(
     }
 }
 
+/// GET /api/v1/download/tasks — 全部任务状态（Django 用于聚合“正在下载”列表）
+async fn list_tasks(State(state): State<SharedState>) -> Json<serde_json::Value> {
+    let tasks = task::task_summaries(&state);
+    Json(json!({ "tasks": tasks, "count": tasks.len() }))
+}
+
 /// GET /health — 健康检查
 async fn health(State(state): State<SharedState>) -> Json<serde_json::Value> {
     Json(json!({
@@ -111,7 +117,7 @@ async fn main() {
         )
         .init();
 
-    let config = Config::from_env();
+    let config = Config::load();
     info!("JM Downloader 启动: {:?}", config);
 
     let state = Arc::new(AppState::new(&config));
@@ -143,6 +149,7 @@ async fn main() {
     // 构建路由
     let app = Router::new()
         .route("/api/v1/download", post(submit_download))
+        .route("/api/v1/download/tasks", get(list_tasks))
         .route("/api/v1/download/{task_id}/status", get(get_task_status))
         .route("/health", get(health))
         .with_state(state);

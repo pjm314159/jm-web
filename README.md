@@ -5,10 +5,10 @@
 
 ## 功能特性
 
-- **在线搜索与筛选**：关键词 / 标签搜索，支持排序、时间、分类、子分类筛选，关键词留空时按筛选条件浏览全部作品
-- **在线阅读**：专辑详情、章节列表、评论区，图片由前端 WASM 解码器反混淆显示
-- **一键下载**：提交后由 Rust 微服务并发下载 + 反混淆 + 写盘，支持断点续传、抖动重试、进度回调
-- **本地漫画库**：已下载专辑管理（列表 / 详情 / 删除）、远端更新检测、本地阅读器
+- **在线搜索与筛选**：关键词 / 标签 / 作者搜索，支持排序、时间、分类、子分类筛选，关键词留空时按筛选条件浏览全部作品
+- **在线阅读**：专辑详情、章节列表、评论区，图片由前端 WASM 解码器反混淆显示（GIF 原始渲染）
+- **一键下载**：提交后由 Rust 微服务并发下载 + 反混淆 + 写盘，支持断点续传、抖动重试、进度回调；GIF 原样保存；失败章节可单章重试或一键重下
+- **本地漫画库**：已下载专辑管理（列表 / 详情 / 删除）、远端更新检测、本地阅读器、评论区（默认收起，点击展开）
 - **本地媒体浏览**：图片 / 视频文件夹浏览，视频在线播放（Nginx Range 直出 + Django 鉴权后的 X-Accel）
 - **账号体系**：注册门控密钥 + JWT 登录（access / refresh 7 天，旋转 + 拉黑）
 
@@ -20,7 +20,7 @@
 | 前端 | React 19 + TypeScript + Vite + Tailwind CSS + TanStack Query |
 | 下载服务 | Rust（axum + reqwest + tokio），替代 Celery |
 | 数据库 | SQLite（WAL 模式，PRAGMA 优化） |
-| 缓存 | Redis（Django 缓存 + Rust 定时扫描协调） |
+| 缓存 | Redis（Django 缓存 + 本地媒体扫描结果） |
 | 反向代理 | Nginx（静态托管 + 媒体直出 + API 反代） |
 | 依赖管理 | uv（Python）、pnpm（前端）、cargo（Rust） |
 | 部署 | Docker Compose（redis / web / rust_downloader / nginx） |
@@ -34,22 +34,21 @@
 Nginx :8000
   ├── /                  前端静态资源（Vite 构建产物）
   ├── /api/              Django API（Gunicorn :8000）
-  ├── /api/v1/download/  Rust 下载微服务（:3080）
   ├── /media/images/     图片目录直出
   ├── /media/videos/     视频直出（支持 Range / X-Accel）
   └── /static/           Django 静态文件
 
-Django ── jmcomic 加密 API ──► 禁漫站点（搜索 / 详情 / 元数据）
-Rust   ── JM 图片 CDN ───────► 下载 + 反混淆 + 写盘
-Redis  ── Django 缓存 / Rust 扫描调度
+Django ── jmcomic ─────────► 禁漫站点（搜索 / 详情 / 评论 / 元数据）
+Rust   ── JM 图片 CDN ─────► 下载 + 反混淆 + 写盘
+Redis  ── Django 缓存 / 本地媒体扫描结果
 SQLite ── 专辑与章节元数据
 ```
 
 关键设计：
 
 - Nginx 是唯一对外入口（宿主端口 8000），`/` 返回 React 产物，`/api/` 反代 Django，媒体文件由 Nginx 直出。
-- Django 退化为纯 JSON API：负责登录鉴权、jmcomic 元数据获取、任务编排、数据库读写。
-- Rust 微服务替代原 Celery：并发图片下载、反混淆解码、断点续传、带抖动的重试、进度回调、失败清理、本地媒体目录定时扫描。
+- Django 负责登录鉴权、jmcomic 元数据获取、任务编排、数据库读写；下载编排通过内部 HTTP 调用 Rust 微服务（容器内 `rust_downloader:3080`）。
+- Rust 微服务替代原 Celery：并发图片下载、反混淆解码、断点续传、带抖动的重试、进度回调、失败清理、本地媒体目录定时扫描；任务队列为进程内存，Redis 用于 Django 缓存与本地媒体扫描结果。
 - 封面统一保存在专辑根目录 `media/images/jmcomic/{专辑名}/cover.png`，与数据库 `cover_path` 一致。
 
 ## 快速开始（Docker）
@@ -71,11 +70,13 @@ cp .env.example .env
 
 | 变量 | 说明 |
 | --- | --- |
-| `ALLOWED_HOST` | 访问域名或 IP，多个用逗号分隔 |
+| `ALLOWED_HOST` | 访问域名或 IP（单个主域名；127.0.0.1 / localhost 自动允许） |
 | `DJANGO_SECRET_KEY` | Django 密钥，务必修改 |
 | `REGISTRATION_SECRET_KEY` | 注册门控密钥，注册时需输入 |
-| `CSRF_TRUSTED_ORIGINS` | CSRF 信任来源，多个用逗号分隔 |
-| `CORS_ALLOWED_ORIGINS` | CORS 允许来源，多个用逗号分隔 |
+| `CSRF_TRUSTED_ORIGINS` | CSRF 信任来源，逗号分隔 |
+| `CORS_ALLOWED_ORIGINS` | CORS 允许来源，逗号分隔 |
+
+可选：网络环境需要代理时设置 `PROXY=http://127.0.0.1:10808`（jmcomic 与 Rust 图片下载共用，留空则直连）。
 
 生成 Django Secret Key：
 
@@ -145,6 +146,8 @@ cd rust-downloader
 REDIS_URL=redis://127.0.0.1:6379/0 MEDIA_ROOT=../JmWebProject/media cargo run
 ```
 
+也支持 `config.toml` 配置文件（参考 `config.example.toml`），可用 `--config <path>` 或 `JM_CONFIG_FILE` 指定。
+
 ### Redis
 
 ```bash
@@ -160,27 +163,11 @@ cd frontend && pnpm build && pnpm lint
 cd rust-downloader && cargo fmt --check && cargo clippy -- -D warnings && cargo test
 ```
 
-## API 一览
+## 配置说明
 
-| 模块 | 端点 | 说明 |
-| --- | --- | --- |
-| 认证 | `/api/auth/register/`、`/token/`、`/token/refresh/`、`/logout/` | 注册（需注册密钥）、登录、刷新、登出 |
-| 在线搜索 | `GET /api/search/` | 关键词 / 标签搜索 + 筛选 |
-| 在线详情 | `/api/search/albums/{jm_id}/`、`/episodes/`、`/comments/`、`/api/search/photos/{id}/images/` | 详情、章节、评论、阅读器图片 |
-| 漫画库 | `/api/library/albums/`、`/api/library/photos/{pk}/` | 本地专辑管理、检测更新、标签 / 作者、本地阅读器 |
-| 爬取 | `POST /api/crawl/`、`/api/crawl/tasks/{id}/`、`/api/crawl/callback/` | 提交下载、状态查询、Rust 完成回调 |
-| 本地媒体 | `/api/local/media/`、`/images/{folder}/`、`/videos/{folder}/`、`/stream/{folder}/{file}/` | 图片 / 视频浏览与播放 |
-
-### 搜索参数
-
-| 参数 | 说明 | 取值 |
-| --- | --- | --- |
-| `q` | 关键词，可留空（空 = 全部） | 任意文本 |
-| `type` | 搜索类型 | `keyword` / `tag` |
-| `order_by` | 排序 | `mr` `mv` `mp` `tf` `tr` `md` `mv_m` `mv_w` `mv_t` |
-| `time` | 时间范围 | `t`（今日）`w`（本周）`m`（本月）`a`（全部） |
-| `category` | 分类 | `0` `doujin` `single` `short` `another` `hanman` `meiman` `doujin_cosplay` `3D` `english_site` |
-| `sub_category` | 副分类 | `chinese` `japanese` `CG` `other` `3d` `cosplay` `youth` |
+- 全部可配置参数（后端环境变量、Rust config.toml、前端 VITE_*、Nginx、Docker）见 [docs/config.md](docs/config.md)。
+- gunicorn 启动参数说明见根目录 [config.md](config.md)。
+- 环境变量示例：`.env.example`（后端）、`frontend/.env.example`（前端）。
 
 ## 项目结构
 
@@ -189,7 +176,7 @@ jm-web/
 ├── JmWebProject/
 │   ├── JmWebProject/     # Django 项目配置（settings / urls）
 │   ├── comic/            # 核心应用：models / views / serializers / services
-│   │   └── services/     # 业务层（search / crawl / library / local_media / jm_async）
+│   │   └── services/     # 业务层（search / crawl / library / local_media / jm_sync / jm_async）
 │   ├── user/             # 用户认证应用
 │   ├── media/            # 媒体文件（下载的图片 / 视频）
 │   └── db/               # SQLite 数据库
@@ -200,20 +187,12 @@ jm-web/
 ├── rust-downloader/      # 下载微服务（axum + reqwest）
 ├── nginx/                # Nginx 配置与前端构建镜像
 ├── tests/                # 后端测试
-├── docs/                 # 设计 / 规划文档
+├── docs/                 # 设计 / 规划 / 配置文档
 ├── docker-compose.yml
 ├── Dockerfile
+├── config.md
 └── .env.example
 ```
-
-## CI
-
-GitHub Actions（`.github/workflows/ci.yml`）在 push / PR 时自动执行：
-
-- 后端：ruff lint / format、pytest、Django 系统检查、迁移检查、collectstatic；
-- 前端：`pnpm install`（frozen-lockfile）、TypeScript 构建、oxlint；
-- Rust：rustfmt、clippy（`-D warnings`）、release 构建；
-- Docker：构建 `jm-web` 镜像并校验 compose 配置、启动全栈健康检查。
 
 ## 注意事项
 

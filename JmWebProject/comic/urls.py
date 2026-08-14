@@ -21,6 +21,7 @@ urlpatterns = [
         views.CrawlTaskStatusView.as_view(),
         name="crawl_task_status",
     ),
+    path("crawl/tasks/", views.CrawlTasksListView.as_view(), name="crawl_task_list"),
     path("crawl/callback/", views.CrawlCallbackView.as_view(), name="crawl_callback"),
     # Local M1-M5
     path("local/media/", views.LocalMediaView.as_view(), name="local_media"),

@@ -21,4 +21,8 @@ export const READER_CONFIG = {
   DECODE_BELOW: intEnv('VITE_READER_DECODE_BELOW', 2),
   /** LRU 缓存容量 */
   CACHE_SIZE: intEnv('VITE_READER_CACHE_SIZE', 60),
+  /** 阅读器图片/章节数据 staleTime (ms) */
+  READER_STALE_TIME: intEnv('VITE_READER_STALE_TIME', 300_000),
+  /** 下载进度轮询间隔 (ms) */
+  CRAWL_POLL_INTERVAL: intEnv('VITE_CRAWL_POLL_INTERVAL', 2000),
 } as const
