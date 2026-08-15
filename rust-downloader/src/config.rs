@@ -7,6 +7,8 @@ use serde::Deserialize;
 pub struct Config {
     pub listen_addr: String,
     pub redis_url: String,
+    /// Redis key 前缀（需与 Django 缓存 KEY_PREFIX:version 一致，默认 jmw:1:）
+    pub redis_key_prefix: String,
     pub media_root: String,
     pub max_concurrency: usize,
     pub retry_times: u32,
@@ -48,6 +50,7 @@ struct ServerConfig {
 #[serde(default)]
 struct RedisConfig {
     url: Option<String>,
+    key_prefix: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -99,6 +102,10 @@ impl Config {
                 .redis
                 .url
                 .unwrap_or_else(|| "redis://127.0.0.1:6379/0".to_string()),
+            redis_key_prefix: file
+                .redis
+                .key_prefix
+                .unwrap_or_else(|| "jmw:1:".to_string()),
             media_root: file
                 .storage
                 .media_root
@@ -118,6 +125,12 @@ impl Config {
         // 环境变量覆盖（值无效时回退到文件/默认值）
         config.listen_addr = env_or("LISTEN_ADDR", &config.listen_addr);
         config.redis_url = env_or("REDIS_URL", &config.redis_url);
+        if let Ok(prefix) = env::var("REDIS_KEY_PREFIX") {
+            let prefix = prefix.trim();
+            if !prefix.is_empty() {
+                config.redis_key_prefix = prefix.to_string();
+            }
+        }
         config.media_root = env_or("MEDIA_ROOT", &config.media_root);
         config.max_concurrency = env_or("MAX_CONCURRENCY", &config.max_concurrency.to_string())
             .parse()
@@ -231,6 +244,9 @@ mod tests {
 [server]
 listen_addr = "0.0.0.0:9999"
 
+[redis]
+key_prefix = "jmw:1:"
+
 [download]
 max_concurrency = 8
 decode_concurrency = 0
@@ -241,6 +257,7 @@ cleanup_on_failure = false
 "#;
         let cfg: FileConfig = toml::from_str(toml).unwrap();
         assert_eq!(cfg.server.listen_addr.as_deref(), Some("0.0.0.0:9999"));
+        assert_eq!(cfg.redis.key_prefix.as_deref(), Some("jmw:1:"));
         assert_eq!(cfg.download.max_concurrency, Some(8));
         assert_eq!(cfg.download.decode_concurrency, Some(0));
         assert_eq!(

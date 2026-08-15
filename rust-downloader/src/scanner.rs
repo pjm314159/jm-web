@@ -5,7 +5,9 @@ use serde::Serialize;
 use tracing::{info, warn};
 
 const IMAGE_EXTS: &[&str] = &[".jpg", ".jpeg", ".png", ".webp", ".gif"];
-const VIDEO_EXTS: &[&str] = &[".mp4", ".webm", ".mov", ".mkv"];
+const VIDEO_EXTS: &[&str] = &[
+    ".mp4", ".webm", ".mov", ".mkv", ".avi", ".flv", ".wmv", ".m4v", ".mpg", ".mpeg",
+];
 
 #[derive(Debug, Clone, Serialize)]
 struct FolderInfo {
@@ -64,6 +66,19 @@ fn natural_sort_key(s: &str) -> Vec<String> {
     parts
 }
 
+/// RFC 3986 路径段百分号编码（保留 unreserved 字符），与 Django build_media_url 对齐。
+fn url_encode_segment(s: &str) -> String {
+    let mut out = String::new();
+    for byte in s.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(*byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
 fn is_media_file(path: &Path, exts: &[&str]) -> bool {
     path.extension()
         .map(|ext| exts.contains(&format!(".{}", ext.to_string_lossy().to_lowercase()).as_str()))
@@ -71,7 +86,7 @@ fn is_media_file(path: &Path, exts: &[&str]) -> bool {
 }
 
 /// 扫描本地媒体目录，写入 Redis（复用单连接）。
-pub async fn scan_local_media(media_root: &str, redis_url: &str) {
+pub async fn scan_local_media(media_root: &str, redis_url: &str, key_prefix: &str) {
     let base = Path::new(media_root);
     let media_url = "/media/";
 
@@ -123,10 +138,11 @@ pub async fn scan_local_media(media_root: &str, redis_url: &str) {
                     .iter()
                     .take(3)
                     .map(|f| {
+                        let name = f.file_name().to_string_lossy().into_owned();
                         format!(
                             "{media_url}images/local/{}/{}",
-                            folder_name,
-                            f.file_name().to_string_lossy()
+                            url_encode_segment(&folder_name),
+                            url_encode_segment(&name)
                         )
                     })
                     .collect();
@@ -144,16 +160,19 @@ pub async fn scan_local_media(media_root: &str, redis_url: &str) {
                 let files_list: Vec<FileEntry> = files
                     .iter()
                     .map(|f| FileEntry {
-                        name: f.file_name().to_string_lossy().to_string(),
-                        url: format!(
-                            "{media_url}images/local/{}/{}",
-                            folder_name,
-                            f.file_name().to_string_lossy()
-                        ),
+                        name: f.file_name().to_string_lossy().into_owned(),
+                        url: {
+                            let name = f.file_name().to_string_lossy().into_owned();
+                            format!(
+                                "{media_url}images/local/{}/{}",
+                                url_encode_segment(&folder_name),
+                                url_encode_segment(&name)
+                            )
+                        },
                     })
                     .collect();
 
-                let key = format!("jmw-local-images-{folder_name}");
+                let key = format!("{key_prefix}jmw-local-images-{folder_name}");
                 let _: Result<(), _> = con
                     .set(&key, serde_json::to_string(&files_list).unwrap_or_default())
                     .await;
@@ -201,10 +220,11 @@ pub async fn scan_local_media(media_root: &str, redis_url: &str) {
                             .unwrap_or(false)
                     })
                     .map(|f| {
+                        let name = f.file_name().to_string_lossy().into_owned();
                         format!(
                             "{media_url}videos/{}/{}",
-                            folder_name,
-                            f.file_name().to_string_lossy()
+                            url_encode_segment(&folder_name),
+                            url_encode_segment(&name)
                         )
                     });
 
@@ -219,16 +239,19 @@ pub async fn scan_local_media(media_root: &str, redis_url: &str) {
                 let files_list: Vec<FileEntry> = video_files
                     .iter()
                     .map(|f| FileEntry {
-                        name: f.file_name().to_string_lossy().to_string(),
-                        url: format!(
-                            "{media_url}videos/{}/{}",
-                            folder_name,
-                            f.file_name().to_string_lossy()
-                        ),
+                        name: f.file_name().to_string_lossy().into_owned(),
+                        url: {
+                            let name = f.file_name().to_string_lossy().into_owned();
+                            format!(
+                                "{media_url}videos/{}/{}",
+                                url_encode_segment(&folder_name),
+                                url_encode_segment(&name)
+                            )
+                        },
                     })
                     .collect();
 
-                let key = format!("jmw-local-videos-{folder_name}");
+                let key = format!("{key_prefix}jmw-local-videos-{folder_name}");
                 let _: Result<(), _> = con
                     .set(&key, serde_json::to_string(&files_list).unwrap_or_default())
                     .await;
@@ -243,7 +266,8 @@ pub async fn scan_local_media(media_root: &str, redis_url: &str) {
     };
 
     let json = serde_json::to_string(&context).unwrap_or_default();
-    let result: Result<(), redis::RedisError> = con.set("jmw-local-media-folders", json).await;
+    let media_key = format!("{key_prefix}jmw-local-media-folders");
+    let result: Result<(), redis::RedisError> = con.set(media_key, json).await;
     match result {
         Ok(_) => info!("本地媒体扫描完成并写入 Redis"),
         Err(e) => warn!("Redis SET 失败: {e}"),
@@ -251,7 +275,12 @@ pub async fn scan_local_media(media_root: &str, redis_url: &str) {
 }
 
 /// 启动定时扫描调度器
-pub async fn start_scheduler(redis_url: String, media_root: String, interval_secs: u64) {
+pub async fn start_scheduler(
+    redis_url: String,
+    media_root: String,
+    interval_secs: u64,
+    key_prefix: String,
+) {
     use tokio_cron_scheduler::{Job, JobScheduler};
 
     let sched = JobScheduler::new()
@@ -260,14 +289,16 @@ pub async fn start_scheduler(redis_url: String, media_root: String, interval_sec
 
     let redis_url2 = redis_url.clone();
     let media_root2 = media_root.clone();
+    let key_prefix2 = key_prefix.clone();
 
     let job = Job::new_async(
         format!("*/{interval_secs} * * * * *").as_str(),
         move |_uuid, _lock| {
             let redis_url = redis_url2.clone();
             let media_root = media_root2.clone();
+            let key_prefix = key_prefix2.clone();
             Box::pin(async move {
-                scan_local_media(&media_root, &redis_url).await;
+                scan_local_media(&media_root, &redis_url, &key_prefix).await;
             })
         },
     )
@@ -277,9 +308,10 @@ pub async fn start_scheduler(redis_url: String, media_root: String, interval_sec
     // 启动时立即执行一次
     let redis_url3 = redis_url.clone();
     let media_root3 = media_root.clone();
+    let key_prefix3 = key_prefix.clone();
     tokio::spawn(async move {
         info!("启动时执行初始媒体扫描");
-        scan_local_media(&media_root3, &redis_url3).await;
+        scan_local_media(&media_root3, &redis_url3, &key_prefix3).await;
     });
 
     sched.start().await.expect("failed to start scheduler");
@@ -288,5 +320,20 @@ pub async fn start_scheduler(redis_url: String, media_root: String, interval_sec
     // 保持调度器运行
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_url_encode_segment() {
+        assert_eq!(url_encode_segment("1.jpg"), "1.jpg");
+        assert_eq!(
+            url_encode_segment("测试 相册[A]"),
+            "%E6%B5%8B%E8%AF%95%20%E7%9B%B8%E5%86%8C%5BA%5D"
+        );
+        assert_eq!(url_encode_segment("a-b_c.d~e"), "a-b_c.d~e");
     }
 }

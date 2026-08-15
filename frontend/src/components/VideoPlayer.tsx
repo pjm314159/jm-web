@@ -3,7 +3,6 @@
  * Props 传入选集数据，支持网页全屏 / 系统全屏 / 倍速 / 音量 / 长按加速 / 选集分页。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 
 /* ─── 类型 ──────────────────────────────────────────── */
 export interface VideoEpisode {
@@ -120,6 +119,9 @@ function DownloadIcon({ className = '' }: { className?: string }) {
 export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProps) {
   const totalEps = episodes.length
   const containerRef = useRef<HTMLDivElement>(null)
+  const playerMountRef = useRef<HTMLDivElement>(null)
+  const originalParentRef = useRef<HTMLElement | null>(null)
+  const originalNextRef = useRef<Node | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(null)
@@ -290,6 +292,27 @@ export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProp
     }
   }, [isWebFullscreen])
 
+  /* 网页全屏：把播放器容器整体移动到 body，而不是重挂载 <video>，保证播放不中断 */
+  useEffect(() => {
+    const el = playerMountRef.current
+    if (!el) return
+    if (isWebFullscreen) {
+      originalParentRef.current = el.parentElement
+      originalNextRef.current = el.nextSibling
+      // 必须仍在 React 根容器 #root 内，否则合成事件（点击/鼠标移动等）全部失效；
+      // 挂到应用顶层 div（z-index 9999 > 导航栏 z-50），且 .demo-bg 不产生 stacking context
+      const appRoot = document.getElementById('root')?.firstElementChild
+      if (appRoot && el.parentElement !== appRoot) {
+        appRoot.append(el)
+      }
+    } else {
+      const parent = originalParentRef.current
+      if (parent && el.parentElement !== parent) {
+        parent.insertBefore(el, originalNextRef.current)
+      }
+    }
+  }, [isWebFullscreen])
+
   /* ─── 画面左右拖动调进度（触摸 + 鼠标） ─── */
   const beginGesture = (clientX: number) => {
     const v = videoRef.current
@@ -335,8 +358,10 @@ export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProp
   /* ─── 长按倍速 ─── */
   const startLongPress = () => {
     longPressTimer.current = setTimeout(() => {
+      const v = videoRef.current
+      if (!v || v.paused) return // 暂停时不允许长按倍速
       setLongPressSpeed(true)
-      if (videoRef.current) videoRef.current.playbackRate = 3
+      v.playbackRate = 3
       setToast('3x 倍速播放中')
     }, 400)
   }
@@ -346,6 +371,9 @@ export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProp
       setLongPressSpeed(false)
       if (videoRef.current) videoRef.current.playbackRate = speed
       setToast('')
+      // 长按结束后浏览器会补发 click，吞掉它避免误触发播放/暂停
+      suppressClickRef.current = true
+      setTimeout(() => { suppressClickRef.current = false }, 400)
     }
   }
   useEffect(() => {
@@ -492,7 +520,11 @@ export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProp
 
             {/* 倍速 */}
             <div className="relative">
-              <button type="button" onClick={() => { setSpeedMenuOpen((v) => !v); setSettingsOpen(false) }} className="ctrl-btn">
+              <button
+                type="button"
+                onClick={() => { setSpeedMenuOpen((v) => !v); setSettingsOpen(false) }}
+                className="ctrl-btn"
+              >
                 <span className="text-xs font-bold">{speed}x</span>
               </button>
               {speedMenuOpen && (
@@ -561,14 +593,10 @@ export default function VideoPlayer({ episodes, initialEp = 0 }: VideoPlayerProp
     </div>
   )
 
-  /* 网页全屏：Portal 到 body */
-  if (isWebFullscreen) {
-    return createPortal(playerNode, document.body)
-  }
-
   return (
     <div>
-      {playerNode}
+      {/* 播放器容器：网页全屏时整体移动（见上方 useEffect） */}
+      <div ref={playerMountRef}>{playerNode}</div>
 
       {/* ═══ 播放器下方：信息 + 操作按钮 ═══ */}
       <div className="mt-4">

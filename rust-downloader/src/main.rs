@@ -126,8 +126,9 @@ async fn main() {
     let scan_redis = config.redis_url.clone();
     let scan_media = config.media_root.clone();
     let scan_interval = config.scan_interval_secs;
+    let scan_key_prefix = config.redis_key_prefix.clone();
     tokio::spawn(async move {
-        scanner::start_scheduler(scan_redis, scan_media, scan_interval).await;
+        scanner::start_scheduler(scan_redis, scan_media, scan_interval, scan_key_prefix).await;
     });
 
     // 后台淡汰过期任务（防止 DashMap 无限增长）

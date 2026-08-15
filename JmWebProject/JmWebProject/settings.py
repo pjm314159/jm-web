@@ -68,7 +68,9 @@ LOCAL_IMAGE_EXTS = [
 ]
 LOCAL_VIDEO_EXTS = [
     e.strip()
-    for e in os.environ.get("LOCAL_VIDEO_EXTS", ".mp4,.webm,.mov,.mkv").split(",")
+    for e in os.environ.get(
+        "LOCAL_VIDEO_EXTS", ".mp4,.webm,.mov,.mkv,.avi,.flv,.wmv,.m4v,.mpg,.mpeg"
+    ).split(",")
     if e.strip()
 ]
 

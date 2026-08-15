@@ -41,6 +41,7 @@ services:
     environment:
       - LISTEN_ADDR=0.0.0.0:3080
       - REDIS_URL=redis://redis:6379/0
+      - "REDIS_KEY_PREFIX=jmw:1:"
       - MEDIA_ROOT=/app/JmWebProject/media
       - MAX_CONCURRENCY=50
       - RETRY_TIMES=5

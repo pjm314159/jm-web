@@ -8,6 +8,7 @@ log_level = "info"              # trace | debug | info | warn | error
 
 [redis]
 url = "redis://127.0.0.1:6379/0"
+key_prefix = "jmw:1:"      # 需与 Django 缓存 KEY_PREFIX:version 一致
 
 [storage]
 media_root = "./media"          # 需与 Django MEDIA_ROOT 指向同一目录

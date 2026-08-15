@@ -157,3 +157,41 @@ class TestVideoStream:
         _make_video_folder(media_root)
         resp = auth_client.get(reverse("video_stream", args=["视频夹", "nope.mp4"]))
         assert resp.status_code == 404
+
+
+class TestLocalMediaConfig:
+    def test_redis_key_prefix_matches_rust_scanner(self, settings):
+        # Django 缓存 KEY_PREFIX=jmw、version=1 生成的 key，须与 Rust scanner 默认前缀一致
+        settings.CACHES = {
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "jm-prefix-test",
+                "KEY_PREFIX": "jmw",
+            }
+        }
+        from django.core.cache import cache
+
+        assert cache.make_key("jmw-local-videos-测试夹") == "jmw:1:jmw-local-videos-测试夹"
+
+    def test_video_external_formats_recognized(self, auth_client, media_root):
+        from comic.services import local_media
+
+        _make_video_folder(
+            media_root,
+            name="多格式",
+            files=("a.avi", "b.flv", "c.wmv", "d.m4v", "e.mpg", "f.mpeg"),
+        )
+        _, folders = local_media.scan_local_media_folders()
+        target = next(f for f in folders if f["folder_name"] == "多格式")
+        assert target["count"] == 6
+
+    def test_redis_backend_detection(self, settings):
+        settings.CACHES = {
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": "redis://127.0.0.1:6379/0",
+            }
+        }
+        from comic.services import local_media
+
+        assert local_media._is_redis_backend() is True

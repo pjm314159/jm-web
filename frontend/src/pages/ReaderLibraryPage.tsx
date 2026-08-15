@@ -111,10 +111,11 @@ export default function ReaderLibraryPage({
 
   /** 点击图片流：优先收起弹出面板，否则切换工具栏 */
   const handleStreamClick = () => {
-    if (panelOpen || pageOpen || settingsOpen) {
+    if (panelOpen || pageOpen || settingsOpen || commentsOpen) {
       setPanelOpen(false)
       setPageOpen(false)
       setSettingsOpen(false)
+      setCommentsOpen(false)
     } else {
       setBarsVisible((v) => !v)
     }

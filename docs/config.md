@@ -38,6 +38,7 @@
 | 参数 | 类型 | 默认值 | 环境变量覆盖 | 说明 |
 |------|------|--------|-------------|------|
 | `url` | string | `"redis://127.0.0.1:6379/0"` | `REDIS_URL` | Redis 连接串（本地媒体扫描结果写入） |
+| `key_prefix` | string | `"jmw:1:"` | `REDIS_KEY_PREFIX` | Redis key 前缀，需与 Django 缓存 `KEY_PREFIX:version` 一致 |
 
 ### 1.3 `[storage]` — 文件存储
 
@@ -147,7 +148,7 @@
 | `DB_TIMEOUT` | int | `5` | SQLite 锁等待超时（秒） |
 | `DB_CONN_MAX_AGE` | int | `60` | 数据库连接最大存活（秒） |
 | `LOCAL_IMAGE_EXTS` | csv | `.jpg,.jpeg,.png,.webp,.gif` | 本地媒体识别的图片扩展名 |
-| `LOCAL_VIDEO_EXTS` | csv | `.mp4,.webm,.mov,.mkv` | 本地媒体识别的视频扩展名 |
+| `LOCAL_VIDEO_EXTS` | csv | `.mp4,.webm,.mov,.mkv,.avi,.flv,.wmv,.m4v,.mpg,.mpeg` | 本地媒体识别的视频扩展名（与播放器支持的格式一致） |
 
 ### 2.8 认证与日志
 
