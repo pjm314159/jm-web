@@ -20,6 +20,7 @@ export function usePageTitle() {
     else if (pathname === '/register') title = '注册'
     else if (pathname === '/search') title = '在线搜索'
     else if (pathname === '/crawl') title = '爬虫中心'
+    else if (pathname === '/profile') title = '个人资料'
     else if (pathname === '/library') title = '藏书阁'
     else if (pathname === '/library/search') title = '高级搜索'
     else if (pathname === '/local') title = '本地资源'

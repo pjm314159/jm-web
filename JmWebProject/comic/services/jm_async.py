@@ -239,6 +239,30 @@ async def fetch_album_comments(album_id: str, page: int = 1):
         raise map_jm_exception(e) from e
 
 
+async def login(username: str, password: str):
+    """JM 账号登录，返回 JmApiResp（decoded_data 为账号信息 JSON）。"""
+    client = await _get_client()
+    try:
+        return await client.login(username, password)
+    except JmcomicException as e:
+        raise map_jm_exception(e) from e
+
+
+async def current_username():
+    """当前全局客户端已登录的 JM 用户名（未登录返回 None）。"""
+    client = await _get_client()
+    return getattr(client, "_username", None)
+
+
+async def favorite_folder(page=1, order_by=JmMagicConstants.ORDER_BY_LATEST, folder_id="0"):
+    """获取收藏夹分页（JmFavoritePage）。"""
+    client = await _get_client()
+    try:
+        return await client.favorite_folder(page=page, order_by=order_by, folder_id=folder_id)
+    except JmcomicException as e:
+        raise map_jm_exception(e) from e
+
+
 async def fetch_photos_concurrent(photo_ids: list[str], max_concurrency: int = 6) -> dict:
     """并发获取多个章节详情（Semaphore 限流，复用全局客户端）。
 

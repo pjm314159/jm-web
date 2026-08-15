@@ -23,6 +23,11 @@ urlpatterns = [
     ),
     path("crawl/tasks/", views.CrawlTasksListView.as_view(), name="crawl_task_list"),
     path("crawl/callback/", views.CrawlCallbackView.as_view(), name="crawl_callback"),
+    # Profile：JM 账号关联 + 收藏夹
+    path("profile/", views.ProfileView.as_view(), name="profile"),
+    path("profile/link/", views.ProfileLinkView.as_view(), name="profile_link"),
+    path("profile/unlink/", views.ProfileUnlinkView.as_view(), name="profile_unlink"),
+    path("profile/favorites/", views.ProfileFavoritesView.as_view(), name="profile_favorites"),
     # Local M1-M5
     path("local/media/", views.LocalMediaView.as_view(), name="local_media"),
     path("local/media/refresh/", views.LocalMediaRefreshView.as_view(), name="local_media_refresh"),

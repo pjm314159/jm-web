@@ -85,6 +85,21 @@ def fetch_album_comments(album_id: str, page: int = 1):
     return run_on_loop(jm_async.fetch_album_comments(album_id, page))
 
 
+def login(username: str, password: str):
+    """JM 账号登录（返回 JmApiResp）。"""
+    return run_on_loop(jm_async.login(username, password))
+
+
+def current_username():
+    """当前全局客户端已登录的 JM 用户名（未登录返回 None）。"""
+    return run_on_loop(jm_async.current_username())
+
+
+def favorite_folder(page=1, order_by=JmMagicConstants.ORDER_BY_LATEST, folder_id="0"):
+    """获取收藏夹分页（JmFavoritePage）。"""
+    return run_on_loop(jm_async.favorite_folder(page=page, order_by=order_by, folder_id=folder_id))
+
+
 def get_album_cover_url(album_id: str) -> str:
     """封面 URL（纯计算，无网络请求）。"""
     return JmcomicText.get_album_cover_url(album_id)

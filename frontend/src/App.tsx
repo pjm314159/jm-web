@@ -18,6 +18,7 @@ import LocalMediaPage from './pages/LocalMediaPage'
 import LocalVideosPage from './pages/LocalVideosPage'
 import LocalVideosDetailPage from './pages/LocalVideosDetailPage'
 import LoginPage from './pages/LoginPage'
+import ProfilePage from './pages/ProfilePage'
 import RegisterPage from './pages/RegisterPage'
 import SearchPage from './pages/SearchPage'
 import SearchDetailPage from './pages/SearchDetailPage'
@@ -129,6 +130,14 @@ function AppContent() {
             element={
               <RequireAuth>
                 <CrawlPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <RequireAuth>
+                <ProfilePage />
               </RequireAuth>
             }
           />

@@ -1,4 +1,5 @@
 # comic/models.py
+from django.conf import settings
 from django.db import models
 
 
@@ -53,3 +54,24 @@ class Photo(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class LinkedJmAccount(models.Model):
+    """用户关联的 JM 账号（用户名 + 加签密码 + 账号信息）。"""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="jm_account",
+    )
+    username = models.CharField(max_length=255, verbose_name="JM 用户名")
+    password = models.TextField(verbose_name="加签后的 JM 密码")
+    account_info = models.JSONField(default=dict, blank=True, verbose_name="账号信息")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "关联 JM 账号"
+
+    def __str__(self):
+        return self.username

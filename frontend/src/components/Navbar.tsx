@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { useAuthStore } from '../store/authStore'
@@ -34,6 +34,13 @@ function LogoutIcon({ className = '' }: { className?: string }) {
     </svg>
   )
 }
+function UserIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+    </svg>
+  )
+}
 
 interface NavbarProps {
   isDark: boolean
@@ -54,9 +61,28 @@ export default function Navbar({ isDark, onToggleTheme, hidden = false }: Navbar
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const logout = useAuthStore((s) => s.logout)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
 
   // 路由切换后自动收起移动端菜单
   useEffect(() => setMenuOpen(false), [pathname])
+  useEffect(() => {
+    if (!userMenuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setUserMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [userMenuOpen])
 
   const handleLogout = async () => {
     await logout()
@@ -109,25 +135,45 @@ export default function Navbar({ isDark, onToggleTheme, hidden = false }: Navbar
           <ThemeToggle isDark={isDark} onToggle={onToggleTheme} />
           {isAuthenticated && (
             <>
-              {/* 中大屏：液态玻璃文字登出按钮（.glass-btn 自带 display 会覆盖 hidden，需用包裹层控制显隐） */}
-              <span className="hidden sm:flex">
-                <button type="button" onClick={handleLogout} className="glass-btn glass-btn-sm">
-                  <span className="glass-btn-overlay" />
-                  <span className="glass-btn-text">退出登录</span>
-                </button>
-              </span>
-              {/* 小屏：SVG 登出（与登出按钮同一 glass-btn 样式） */}
-              <span className="sm:hidden">
+              {/* 用户菜单：头像 SVG，悬浮展示二级菜单（个人资料 / 登出） */}
+              <div ref={userMenuRef} className="group relative block">
                 <button
                   type="button"
-                  aria-label="退出登录"
-                  onClick={handleLogout}
-                  className="glass-btn glass-btn-sm !px-2.5 !py-2"
+                  aria-label="个人菜单"
+                  onClick={() => setUserMenuOpen((v) => !v)}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-white/40 text-slate-600 shadow-sm backdrop-blur-xl transition-all duration-300 hover:border-indigo-300/60 hover:text-indigo-600 dark:border-white/10 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:text-indigo-400"
                 >
-                  <span className="glass-btn-overlay" />
-                  <LogoutIcon className="relative z-10 h-5 w-5 text-slate-600 dark:text-slate-300" />
+                  <UserIcon className="h-5 w-5" />
                 </button>
-              </span>
+                <div
+                  className={`absolute right-0 top-full z-50 mt-2 w-36 origin-top-right scale-95 rounded-2xl border border-white/40 bg-white/70 p-1.5 opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:visible group-hover:scale-100 group-hover:opacity-100 dark:border-white/10 dark:bg-slate-800/90 ${
+                    userMenuOpen ? 'visible scale-100 opacity-100' : 'invisible'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenuOpen(false)
+                      navigate('/profile')
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-indigo-500/10 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400"
+                  >
+                    <UserIcon className="h-4 w-4" />
+                    个人资料
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenuOpen(false)
+                      handleLogout()
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-rose-500 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
+                  >
+                    <LogoutIcon className="h-4 w-4" />
+                    登出
+                  </button>
+                </div>
+              </div>
               {/* 小屏：菜单按钮（下拉导航，同一 glass-btn 样式） */}
               <span className="md:hidden">
                 <button

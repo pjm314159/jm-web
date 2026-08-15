@@ -24,6 +24,7 @@ from .serializers import (
 )
 from .services import crawl as crawl_service
 from .services import library, local_media, search
+from .services import profile as profile_service
 from .utils import parse_jm_input
 
 logger = logging.getLogger(__name__)
@@ -165,6 +166,59 @@ class CrawlCallbackView(APIView):
     def post(self, request):
         result = crawl_service.handle_rust_callback(request.data)
         return Response(result)
+
+
+# ====================================================
+# 个人资料（/api/profile/）：JM 账号关联 + 收藏夹
+# ====================================================
+class ProfileView(APIView):
+    """个人资料：查看已关联的 JM 账号信息。"""
+
+    def get(self, request):
+        account = profile_service.get_linked(request.user)
+        return Response({"linked": account is not None, "account": account})
+
+
+class ProfileLinkView(APIView):
+    """关联 JM 账号（用户名 + 密码）。"""
+
+    def post(self, request):
+        try:
+            account = profile_service.link_account(
+                request.user,
+                request.data.get("username", ""),
+                request.data.get("password", ""),
+            )
+        except profile_service.ProfileError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            logger.exception("关联账号失败")
+            return Response({"error": "关联失败，请稍后重试"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({"account": account})
+
+
+class ProfileUnlinkView(APIView):
+    """解除 JM 账号关联。"""
+
+    def post(self, request):
+        profile_service.unlink_account(request.user)
+        return Response({"ok": True})
+
+
+class ProfileFavoritesView(APIView):
+    """获取已关联账号的收藏夹。"""
+
+    def get(self, request):
+        try:
+            data = profile_service.fetch_favorites(request.user, page=request.GET.get("page", 1))
+        except profile_service.ProfileError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            logger.exception("获取收藏夹失败")
+            return Response(
+                {"error": "获取收藏夹失败，请稍后重试"}, status=status.HTTP_502_BAD_GATEWAY
+            )
+        return Response(data)
 
 
 # ====================================================
