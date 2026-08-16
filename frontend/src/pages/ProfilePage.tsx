@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { AxiosError } from 'axios'
+import { useNavigate } from 'react-router-dom'
 
 import { getJmFavorites, getProfile, linkJmAccount, unlinkJmAccount } from '../api/profile'
 import AlbumCard from '../components/AlbumCard'
 import PaginationBar from '../components/PaginationBar'
 import { setPageTitle } from '../lib/usePageTitle'
+import { useAuthStore } from '../store/authStore'
 
 function UserIcon({ className = '' }: { className?: string }) {
   return (
@@ -23,13 +25,44 @@ function HeartIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function LogoutIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-7.5A2.25 2.25 0 003.75 5.25v13.5A2.25 2.25 0 006 21h7.5a2.25 2.25 0 002.25-2.25V15m3-3l3-3m0 0l-3-3m3 3H9" />
+    </svg>
+  )
+}
+
+/** 账号头像：优先远端图，加载失败回退到用户名首字。 */
+function AccountAvatar({ username, src }: { username: string; src: string | null }) {
+  const [failed, setFailed] = useState(false)
+  if (!src || failed) {
+    return (
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-lg font-black text-white shadow-md">
+        {username.slice(0, 1).toUpperCase()}
+      </span>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={username}
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className="h-12 w-12 shrink-0 rounded-full border border-white/40 object-cover shadow-md dark:border-white/10"
+    />
+  )
+}
+
 function errMsg(error: unknown): string {
   const e = error as AxiosError<{ error?: string }>
   return e?.response?.data?.error ?? '操作失败，请稍后重试'
 }
 
 export default function ProfilePage() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const logout = useAuthStore((s) => s.logout)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [favPage, setFavPage] = useState(1)
@@ -37,6 +70,11 @@ export default function ProfilePage() {
   useEffect(() => {
     setPageTitle('个人资料')
   }, [])
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login', { replace: true })
+  }
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['profile'],
@@ -71,14 +109,27 @@ export default function ProfilePage() {
 
   return (
     <div className="relative z-10 mx-auto mt-24 w-full max-w-6xl px-4 pb-16 sm:px-6">
-      <div className="mb-6 flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/40 bg-white/40 text-indigo-500 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-slate-700/40 dark:text-indigo-400">
-          <UserIcon className="h-6 w-6" />
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/40 bg-white/40 text-indigo-500 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-slate-700/40 dark:text-indigo-400">
+            <UserIcon className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">个人资料</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">关联 JM 账号并同步收藏夹</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">个人资料</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">关联 JM 账号并同步收藏夹</p>
-        </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="glass-btn glass-btn-sm glass-btn-round !px-4 !py-2"
+        >
+          <span className="glass-btn-overlay" />
+          <span className="glass-btn-text flex items-center gap-1.5 !text-sm">
+            <LogoutIcon className="h-4 w-4" />
+            登出
+          </span>
+        </button>
       </div>
 
       {/* ─── 关联账号 ─── */}
@@ -92,16 +143,41 @@ export default function ProfilePage() {
           <div className="h-24 animate-pulse rounded-2xl bg-slate-200/60 dark:bg-slate-700/40" />
         ) : account ? (
           <div className="space-y-4">
-            <div className="rounded-2xl border border-emerald-300/50 bg-emerald-50/40 p-4 dark:border-emerald-500/20 dark:bg-emerald-950/20">
-              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-                <span className="font-bold text-slate-800 dark:text-slate-100">{account.username}</span>
-                <span className="text-slate-500 dark:text-slate-400">UID: {account.uid ?? '-'}</span>
-                <span className="text-slate-500 dark:text-slate-400">等级: {account.level_name ?? '-'}</span>
-                <span className="text-slate-500 dark:text-slate-400">收藏: {account.album_favorites ?? '-'}</span>
-                <span className="text-slate-500 dark:text-slate-400">硬币: {account.coin ?? '-'}</span>
-              </div>
+            {/* 账号信息：单层 flex 容器，重要数据放大、次要数据弱化 */}
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 rounded-2xl border border-emerald-300/50 bg-emerald-50/40 px-5 py-4 dark:border-emerald-500/20 dark:bg-emerald-950/20">
+              <AccountAvatar username={account.username} src={account.avatar} />
+              <span className="flex items-center gap-2">
+                <span className="text-lg font-black text-slate-900 dark:text-white">
+                  {account.username}
+                </span>
+                {account.level_name && (
+                  <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                    {account.level_name}
+                  </span>
+                )}
+              </span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">
+                UID{' '}
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                  {account.uid ?? '-'}
+                </span>
+              </span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">
+                收藏{' '}
+                <span className="text-base font-black text-indigo-600 dark:text-indigo-400">
+                  {account.album_favorites ?? '-'}
+                </span>
+              </span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">
+                硬币{' '}
+                <span className="text-base font-black text-amber-600 dark:text-amber-400">
+                  {account.coin ?? '-'}
+                </span>
+              </span>
               {account.email && (
-                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{account.email}</p>
+                <span className="w-full text-xs text-slate-400 dark:text-slate-500">
+                  {account.email}
+                </span>
               )}
             </div>
             <button

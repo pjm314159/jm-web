@@ -14,6 +14,7 @@ def _login_resp(info=None):
     info = info or {
         "uid": "123",
         "username": "pjm314159",
+        "photo": "3667109.jpg?v=1786776514",
         "email": "a@b.com",
         "level_name": "聖騎士",
         "album_favorites": 39,
@@ -55,9 +56,53 @@ class TestProfileApi:
             )
         assert resp.status_code == 200
         assert resp.data["account"]["username"] == "pjm314159"
+        avatar = resp.data["account"]["avatar"]
+        assert avatar.startswith("https://")
+        assert avatar.endswith("/media/users/3667109.jpg?v=1786776514")
         assert resp.data["account"]["album_favorites"] == 39
         m.assert_called_once_with("pjm314159", "secret")
         assert LinkedJmAccount.objects.count() == 1
+
+    def test_link_account_avatar_full_url_passthrough(self, auth_client):
+        resp_info = _login_resp(
+            {
+                "uid": "123",
+                "username": "pjm314159",
+                "photo": "https://cdn.example.com/media/users/avatar.png?v=1",
+                "album_favorites": 0,
+                "coin": "0",
+            }
+        )
+        with patch("comic.services.profile.jm_sync.login", return_value=resp_info):
+            resp = auth_client.post(
+                reverse("profile_link"),
+                {"username": "pjm314159", "password": "secret"},
+                format="json",
+            )
+        assert (
+            resp.data["account"]["avatar"] == "https://cdn.example.com/media/users/avatar.png?v=1"
+        )
+
+    def test_link_account_avatar_path_no_duplicate_prefix(self, auth_client):
+        resp_info = _login_resp(
+            {
+                "uid": "123",
+                "username": "pjm314159",
+                "photo": "/media/users/b.png?v=2",
+                "album_favorites": 0,
+                "coin": "0",
+            }
+        )
+        with patch("comic.services.profile.jm_sync.login", return_value=resp_info):
+            resp = auth_client.post(
+                reverse("profile_link"),
+                {"username": "pjm314159", "password": "secret"},
+                format="json",
+            )
+        avatar = resp.data["account"]["avatar"]
+        assert avatar.startswith("https://")
+        assert avatar.count("media/users") == 1
+        assert avatar.endswith("/media/users/b.png?v=2")
 
     def test_link_account_rejects_bad_credentials(self, auth_client):
         from comic.services.jm_async import JmAsyncError

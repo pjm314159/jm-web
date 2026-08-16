@@ -38,6 +38,11 @@ const ACCENTS: Record<string, Accent> = {
     dot: 'bg-pink-400',
     glow: 'bg-pink-400',
   },
+  amber: {
+    onImage: 'text-amber-300',
+    dot: 'bg-amber-400',
+    glow: 'bg-amber-400',
+  },
 }
 
 interface HomeCardProps {
@@ -143,6 +148,15 @@ export default function HomePage() {
           label="Local"
           title="本地资源"
           desc="浏览服务器上的本地文件夹，图片与视频分类查看，随点随看。"
+        />
+        <HomeCard
+          className="lg:col-span-12"
+          to="/leaderboard"
+          accent={ACCENTS.amber}
+          image="/cards/leaderboard.avif"
+          label="Rank"
+          title="排行榜"
+          desc="月 / 周 / 日排行，配合时间、分类等多条件筛选站源作品。"
         />
       </main>
     </div>

@@ -4,6 +4,7 @@ import { apiClient } from './client'
 export interface JmAccountInfo {
   username: string
   uid: string | null
+  avatar: string | null
   email: string | null
   level_name: string | null
   album_favorites: number | null

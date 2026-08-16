@@ -75,7 +75,7 @@ def search(
     category: str | None = None,
     sub_category: str | None = None,
 ) -> dict:
-    """S1：关键字/标签/作者搜索，缓存 120s，标记本地已下载。"""
+    """S1：关键字/标签/作者/排行榜浏览，缓存 120s，标记本地已下载。"""
     query = (query or "").strip()
     order_by = order_by if order_by in SEARCH_ORDER_BY_VALUES else JmMagicConstants.ORDER_BY_LATEST
     time = time if time in SEARCH_TIME_VALUES else JmMagicConstants.TIME_ALL
@@ -104,6 +104,11 @@ def search(
             jm_page = jm_sync.search_tag(query, page, **search_kwargs)
         elif search_type == "author":
             jm_page = jm_sync.search_author(query, page, **search_kwargs)
+        elif search_type == "rank":
+            # 排行榜：底层走 jmcomic categories_filter（月/周/日排行均派生于此）
+            jm_page = jm_sync.categories_filter(
+                page, time=time, category=category, order_by=order_by
+            )
         else:
             jm_page = jm_sync.search_site(query, page, **search_kwargs)
 

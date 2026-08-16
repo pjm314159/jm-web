@@ -325,6 +325,14 @@
   letter-spacing: 0.5px;
 }
 
+/* 圆形图标按钮（导航栏用户/菜单按钮用，覆盖为整圆） */
+.glass-btn.glass-btn-sm.glass-btn-round,
+.glass-btn.glass-btn-sm.glass-btn-round::before,
+.glass-btn.glass-btn-sm.glass-btn-round::after,
+.glass-btn.glass-btn-sm.glass-btn-round .glass-btn-overlay {
+  border-radius: 9999px;
+}
+
 /* ---- 导航栏链接：鼠标聚焦效果（上浮 + 渐变下划线从中展开 + 光晕）---- */
 .nav-link {
   position: relative;

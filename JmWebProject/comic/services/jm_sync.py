@@ -8,7 +8,9 @@
 纯计算函数（封面 URL / 反混淆序号）保持同步，无需网络。
 """
 
-from jmcomic import JmcomicText, JmImageTool, JmMagicConstants
+import random
+
+from jmcomic import JmcomicText, JmImageTool, JmMagicConstants, JmModuleConfig
 
 from . import jm_async
 from .jm_async import run_on_loop
@@ -100,9 +102,38 @@ def favorite_folder(page=1, order_by=JmMagicConstants.ORDER_BY_LATEST, folder_id
     return run_on_loop(jm_async.favorite_folder(page=page, order_by=order_by, folder_id=folder_id))
 
 
+def categories_filter(
+    page=1,
+    time=JmMagicConstants.TIME_ALL,
+    category=JmMagicConstants.CATEGORY_ALL,
+    order_by=JmMagicConstants.ORDER_BY_LATEST,
+):
+    """分类/排行榜浏览（JmCategoryPage）。"""
+    return run_on_loop(
+        jm_async.categories_filter(page=page, time=time, category=category, order_by=order_by)
+    )
+
+
 def get_album_cover_url(album_id: str) -> str:
     """封面 URL（纯计算，无网络请求）。"""
     return JmcomicText.get_album_cover_url(album_id)
+
+
+def normalize_avatar_url(photo: str | None) -> str | None:
+    """头像 URL 归一化（纯计算，无网络请求）。
+
+    JM 登录响应里的 photo 形如 ``3667109.jpg?v=1786776514``，
+    只需补全为 ``https://{图片域名}/media/users/{photo}`` 供前端直接 <img> 加载；
+    若已是完整 URL 则原样返回。
+    """
+    if not photo:
+        return None
+    photo = photo.strip()
+    if photo.startswith(("http://", "https://", "//")):
+        return photo
+    photo = photo.lstrip("/")
+    path = photo if "media/users/" in photo else f"media/users/{photo}"
+    return f"https://{random.choice(JmModuleConfig.DOMAIN_IMAGE_LIST)}/{path}"
 
 
 def get_num_by_url(scramble_id, img_url: str) -> int:

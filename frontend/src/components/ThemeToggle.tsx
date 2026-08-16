@@ -41,7 +41,7 @@ export default function ThemeToggle({ isDark, onToggle }: ThemeToggleProps) {
           stroke="#f59e0b"
           strokeWidth="2"
           strokeLinecap="round"
-          className="h-6 w-6 drop-shadow"
+          className="h-5 w-5 drop-shadow"
         >
           <circle cx="12" cy="12" r="4" fill="#fbbf24" />
           <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />

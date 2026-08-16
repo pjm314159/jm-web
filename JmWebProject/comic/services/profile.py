@@ -45,6 +45,7 @@ def _account_dict(account: LinkedJmAccount) -> dict:
     return {
         "username": account.username,
         "uid": info.get("uid"),
+        "avatar": jm_sync.normalize_avatar_url(info.get("photo")),
         "email": info.get("email"),
         "level_name": info.get("level_name"),
         "album_favorites": info.get("album_favorites"),

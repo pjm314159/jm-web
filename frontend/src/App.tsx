@@ -13,6 +13,7 @@ import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
 import LibraryDetailPage from './pages/LibraryDetailPage'
 import LibrarySearchPage from './pages/LibrarySearchPage'
+import LeaderboardPage from './pages/LeaderboardPage'
 import LocalImagesPage from './pages/LocalImagesPage'
 import LocalMediaPage from './pages/LocalMediaPage'
 import LocalVideosPage from './pages/LocalVideosPage'
@@ -103,6 +104,14 @@ function AppContent() {
             element={
               <RequireAuth>
                 <SearchPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/leaderboard"
+            element={
+              <RequireAuth>
+                <LeaderboardPage />
               </RequireAuth>
             }
           />

@@ -263,6 +263,22 @@ async def favorite_folder(page=1, order_by=JmMagicConstants.ORDER_BY_LATEST, fol
         raise map_jm_exception(e) from e
 
 
+async def categories_filter(
+    page=1,
+    time=JmMagicConstants.TIME_ALL,
+    category=JmMagicConstants.CATEGORY_ALL,
+    order_by=JmMagicConstants.ORDER_BY_LATEST,
+):
+    """分类/排行榜浏览（JmCategoryPage，月/周/日排行底层也走此接口）。"""
+    client = await _get_client()
+    try:
+        return await client.categories_filter(
+            page=page, time=time, category=category, order_by=order_by
+        )
+    except JmcomicException as e:
+        raise map_jm_exception(e) from e
+
+
 async def fetch_photos_concurrent(photo_ids: list[str], max_concurrency: int = 6) -> dict:
     """并发获取多个章节详情（Semaphore 限流，复用全局客户端）。
 

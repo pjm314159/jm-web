@@ -110,6 +110,24 @@ class TestSearch:
         assert resp.data["search_type"] == "author"
         assert resp.data["results"][0]["author"] == "作者1"
 
+    def test_rank_search(self, auth_client):
+        with (
+            patch("comic.services.search.jm_sync.categories_filter", return_value=FakePage()) as m,
+            patch("comic.services.search.jm_sync.get_album_cover_url", return_value="c"),
+        ):
+            resp = auth_client.get(
+                reverse("search"),
+                {
+                    "q": "",
+                    "type": "rank",
+                    "order_by": "mv_m",
+                    "time": "a",
+                    "category": "0",
+                },
+            )
+        m.assert_called_once_with(1, time="a", category="0", order_by="mv_m")
+        assert resp.data["search_type"] == "rank"
+
     def test_keyword_search_with_filters(self, auth_client):
         with (
             patch("comic.services.search.jm_sync.search_site", return_value=FakePage()) as m,

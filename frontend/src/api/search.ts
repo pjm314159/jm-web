@@ -34,7 +34,7 @@ export interface SearchResponse {
   error: string | null
 }
 
-export type SearchType = 'keyword' | 'tag' | 'author'
+export type SearchType = 'keyword' | 'tag' | 'author' | 'rank'
 
 /** Sorting orders, mirroring jmcomic JmMagicConstants.ORDER_BY_*. */
 export type SearchOrderBy =
