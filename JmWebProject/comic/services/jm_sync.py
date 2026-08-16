@@ -136,6 +136,21 @@ def normalize_avatar_url(photo: str | None) -> str | None:
     return f"https://{random.choice(JmModuleConfig.DOMAIN_IMAGE_LIST)}/{path}"
 
 
+def normalize_badge_url(content: str | None) -> str | None:
+    """奖牌图标 URL 归一化（纯计算，无网络请求）。
+
+    评论里的 badge content 是站点静态资源相对路径（/static/resources/...），
+    补全为 API 站点域名的完整 URL；已是完整 URL 则原样返回。
+    """
+    if not content:
+        return None
+    content = content.strip()
+    if content.startswith(("http://", "https://", "//")):
+        return content
+    content = content.lstrip("/")
+    return f"https://{JmModuleConfig.DOMAIN_API_LIST[0]}/{content}"
+
+
 def get_num_by_url(scramble_id, img_url: str) -> int:
     """阅读页反混淆序号（纯计算，无网络请求）。"""
     return JmImageTool.get_num_by_url(scramble_id, img_url)

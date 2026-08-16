@@ -239,13 +239,32 @@ def get_episode_list(jm_id: str) -> dict:
     return result
 
 
+_NO_AVATAR_PHOTOS = {"nopic-Male.gif", "nopic-Female.gif"}
+
+
 def _comment_to_dict(comment) -> dict:
-    """把 JmAlbumComment 转为前端友好的 dict（递归含嵌套回复）。"""
+    """把 JmAlbumComment 转为前端友好的 dict（递归含嵌套回复）。
+
+    额外从 raw_data 透出：数字等级（expinfo.level）、头像 photo
+    （nopic-Male/Female.gif 占位图过滤）与奖牌 badges（小图标，完整 URL）。
+    """
+    raw = getattr(comment, "raw_data", None) or {}
+    expinfo = raw.get("expinfo") or {}
+    photo = raw.get("photo")
+    if photo in _NO_AVATAR_PHOTOS:
+        photo = None
+    badges = [
+        {"name": badge.get("name"), "url": jm_sync.normalize_badge_url(badge.get("content"))}
+        for badge in expinfo.get("badges") or []
+    ]
     return {
         "comment_id": comment.comment_id,
         "user_id": comment.user_id,
         "username": comment.username,
         "nickname": comment.nickname,
+        "level": expinfo.get("level"),
+        "photo": jm_sync.normalize_avatar_url(photo) if photo else None,
+        "badges": [b for b in badges if b["url"]],
         "content": comment.content,
         "created_at": comment.created_at,
         "likes": comment.likes,

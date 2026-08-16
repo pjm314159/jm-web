@@ -272,7 +272,7 @@ class TestSearchPhotoImages:
 
 
 class FakeComment:
-    def __init__(self, comment_id="c1", replies=None):
+    def __init__(self, comment_id="c1", replies=None, raw_data=None):
         self.comment_id = comment_id
         self.user_id = "u1"
         self.username = "user1"
@@ -282,6 +282,13 @@ class FakeComment:
         self.likes = 3
         self.is_spoiler = False
         self.replies = replies or []
+        self.raw_data = raw_data or {
+            "photo": "u1.jpg",
+            "expinfo": {
+                "level": 10,
+                "badges": [{"content": "/static/resources/images/badge1.png", "name": "徽章1"}],
+            },
+        }
 
 
 class FakeCommentPage:
@@ -302,6 +309,21 @@ class TestSearchAlbumComments:
         assert resp.data["has_next"] is True
         assert resp.data["comments"][0]["content"] == "评论内容"
         assert resp.data["comments"][0]["replies"][0]["comment_id"] == "r1"
+        first = resp.data["comments"][0]
+        assert first["level"] == 10
+        assert first["photo"].startswith("https://")
+        assert first["photo"].endswith("/media/users/u1.jpg")
+        assert first["badges"][0]["url"].startswith("https://")
+        assert first["badges"][0]["url"].endswith("/static/resources/images/badge1.png")
+
+    def test_comments_nopic_avatar_filtered(self, auth_client):
+        comment = FakeComment(raw_data={"photo": "nopic-Female.gif", "expinfo": {}})
+        page = FakeCommentPage()
+        page.content = [comment]
+        with patch("comic.services.search.jm_sync.fetch_album_comments", return_value=page):
+            resp = auth_client.get(reverse("search_album_comments", args=["111"]))
+        assert resp.data["comments"][0]["photo"] is None
+        assert resp.data["comments"][0]["badges"] == []
 
     def test_comments_page_param(self, auth_client):
         with patch(

@@ -179,12 +179,24 @@ export async function getSearchPhotoImages(
 
 /* ─── S5：在线评论 ─────────────────────────── */
 
+/** 评论奖牌（小图标，url 已由后端补全为完整地址）。 */
+export interface CommentBadge {
+  name: string | null
+  url: string | null
+}
+
 /** 单条评论（含嵌套回复）。 */
 export interface AlbumComment {
   comment_id: string | null
   user_id: string | null
   username: string
   nickname: string
+  /** 数字等级（expinfo.level） */
+  level: number | null
+  /** 头像完整 URL（nopic 占位图已被后端过滤，可能为 null） */
+  photo: string | null
+  /** 奖牌列表（昵称下方小图标） */
+  badges: CommentBadge[]
   content: string
   created_at: string | number | null
   likes: number | null

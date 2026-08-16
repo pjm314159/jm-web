@@ -44,10 +44,34 @@ function relTime(raw: string | number | null): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/* ─── 头像（无远端头像，用昵称首字符 + 确定性渐变色） ── */
-function Avatar({ name, seed, small = false }: { name: string; seed: string; small?: boolean }) {
+/* ─── 头像（有远端头像则展示；否则昵称首字符 + 确定性渐变色） ── */
+function Avatar({
+  name,
+  seed,
+  photo,
+  small = false,
+}: {
+  name: string
+  seed: string
+  photo?: string | null
+  small?: boolean
+}) {
+  const [failed, setFailed] = useState(false)
   const initial = (name || '?').trim().charAt(0).toUpperCase() || '?'
   const gradient = AVATAR_GRADIENTS[hashStr(seed || name || '?') % AVATAR_GRADIENTS.length]
+  if (photo && !failed) {
+    return (
+      <img
+        src={photo}
+        alt={name}
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        className={`shrink-0 rounded-full border border-white/40 object-cover shadow-sm dark:border-white/10 ${
+          small ? 'h-7 w-7' : 'h-10 w-10'
+        }`}
+      />
+    )
+  }
   return (
     <div
       className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${gradient} font-bold text-white shadow-sm ${
@@ -109,13 +133,23 @@ function CommentItem({
 
   return (
     <div className={isReply ? 'mt-3 flex gap-2.5' : 'flex gap-3.5'}>
-      <Avatar name={displayName} seed={comment.user_id ?? displayName} small={isReply} />
+      <Avatar
+        name={displayName}
+        seed={comment.user_id ?? displayName}
+        photo={comment.photo}
+        small={isReply}
+      />
       <div className="min-w-0 flex-1">
         {/* 头部：昵称 + 时间 */}
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span className={`font-bold text-slate-800 dark:text-slate-100 ${isReply ? 'text-[13px]' : 'text-sm'}`}>
             {displayName}
           </span>
+          {comment.level != null && (
+            <span className="rounded-full bg-indigo-500/10 px-1.5 py-px text-[10px] font-bold text-indigo-500 dark:text-indigo-400">
+              Lv.{comment.level}
+            </span>
+          )}
           <span className="text-xs text-slate-400 dark:text-slate-500">{relTime(comment.created_at)}</span>
           {comment.is_spoiler && (
             <span className="rounded-full bg-amber-500/10 px-2 py-px text-[10px] font-semibold text-amber-600 dark:text-amber-400">
@@ -123,6 +157,22 @@ function CommentItem({
             </span>
           )}
         </div>
+
+        {/* 昵称下方：奖牌小图标 */}
+        {comment.badges.length > 0 && (
+          <div className="mt-0.5 flex items-center gap-1">
+            {comment.badges.map((badge, i) => (
+              <img
+                key={badge.url ?? `${key}-b${i}`}
+                src={badge.url ?? ''}
+                alt={badge.name ?? ''}
+                title={badge.name ?? ''}
+                loading="lazy"
+                className="h-3.5 w-3.5 rounded-[2px] object-contain"
+              />
+            ))}
+          </div>
+        )}
 
         {/* 内容（剧透模糊，点击显示） */}
         <div
