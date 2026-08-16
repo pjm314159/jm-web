@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { useAuthStore } from '../store/authStore'
@@ -61,13 +61,42 @@ export default function Navbar({ isDark, onToggleTheme, hidden = false }: Navbar
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const logout = useAuthStore((s) => s.logout)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
 
   // 路由切换后自动收起移动端菜单
   useEffect(() => setMenuOpen(false), [pathname])
+  // 手机端展开的用户菜单：点击外部 / Esc 关闭
+  useEffect(() => {
+    if (!userMenuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setUserMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [userMenuOpen])
 
   const handleLogout = async () => {
     await logout()
     navigate('/login', { replace: true })
+  }
+
+  /** 用户头像点击：电脑端直达个人资料页；手机端展开二级菜单。 */
+  const handleUserClick = () => {
+    if (window.matchMedia('(min-width: 768px)').matches) {
+      navigate('/profile')
+    } else {
+      setUserMenuOpen((v) => !v)
+    }
   }
 
   // 导航链接（首页 + 四个功能页占位路由）
@@ -116,38 +145,6 @@ export default function Navbar({ isDark, onToggleTheme, hidden = false }: Navbar
           <ThemeToggle isDark={isDark} onToggle={onToggleTheme} />
           {isAuthenticated && (
             <>
-              {/* 用户入口：液态玻璃头像，点击直达个人资料页；悬浮展示二级菜单（个人资料 / 登出） */}
-              <div className="group relative block">
-                <button
-                  type="button"
-                  aria-label="个人资料"
-                  onClick={() => navigate('/profile')}
-                  className="glass-btn glass-btn-sm glass-btn-round !h-11 !w-11 !p-0"
-                >
-                  <span className="glass-btn-overlay" />
-                  <UserIcon className="relative z-10 h-5 w-5 text-slate-600 dark:text-slate-300" />
-                </button>
-                <div
-                  className="absolute right-0 top-full z-50 mt-2 w-36 origin-top-right scale-95 rounded-2xl border border-white/40 bg-white/70 p-1.5 opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 invisible group-hover:visible group-hover:scale-100 group-hover:opacity-100 dark:border-white/10 dark:bg-slate-800/90"
-                >
-                  <button
-                    type="button"
-                    onClick={() => navigate('/profile')}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-indigo-500/10 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400"
-                  >
-                    <UserIcon className="h-4 w-4" />
-                    个人资料
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-rose-500 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
-                  >
-                    <LogoutIcon className="h-4 w-4" />
-                    登出
-                  </button>
-                </div>
-              </div>
               {/* 小屏：菜单按钮（下拉导航，同一 glass-btn 样式） */}
               <span className="md:hidden">
                 <button
@@ -164,6 +161,46 @@ export default function Navbar({ isDark, onToggleTheme, hidden = false }: Navbar
                   )}
                 </button>
               </span>
+              {/* 用户入口：电脑端点击直达个人资料页、悬浮展开菜单；手机端移至最右，点击展开（个人资料 / 登出） */}
+              <div ref={userMenuRef} className="group relative block">
+                <button
+                  type="button"
+                  aria-label="个人资料"
+                  onClick={handleUserClick}
+                  className="glass-btn glass-btn-sm glass-btn-round !h-11 !w-11 !p-0"
+                >
+                  <span className="glass-btn-overlay" />
+                  <UserIcon className="relative z-10 h-5 w-5 text-slate-600 dark:text-slate-300" />
+                </button>
+                <div
+                  className={`absolute right-0 top-full z-50 mt-2 w-36 origin-top-right scale-95 rounded-2xl border border-white/40 bg-white/70 p-1.5 opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 invisible group-hover:visible group-hover:scale-100 group-hover:opacity-100 dark:border-white/10 dark:bg-slate-800/90 ${
+                    userMenuOpen ? 'visible scale-100 opacity-100' : ''
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenuOpen(false)
+                      navigate('/profile')
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-indigo-500/10 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400"
+                  >
+                    <UserIcon className="h-4 w-4" />
+                    个人资料
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenuOpen(false)
+                      handleLogout()
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-rose-500 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
+                  >
+                    <LogoutIcon className="h-4 w-4" />
+                    登出
+                  </button>
+                </div>
+              </div>
             </>
           )}
         </div>
