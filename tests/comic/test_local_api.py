@@ -62,6 +62,13 @@ class TestLocalMedia:
         target = next(f for f in resp.data["video_folders"] if f["name"] == "有封面")
         assert target["cover_url"].endswith("cover.jpg")
 
+    def test_video_folder_cover_supports_avif(self, auth_client, media_root):
+        folder = _make_video_folder(media_root, name="avif封面")
+        (folder / "cover.avif").write_bytes(b"x")
+        resp = auth_client.get(reverse("local_media"))
+        target = next(f for f in resp.data["video_folders"] if f["name"] == "avif封面")
+        assert target["cover_url"].endswith("cover.avif")
+
 
 class TestLocalMediaRefresh:
     def test_refresh_rescans(self, auth_client, media_root):

@@ -63,7 +63,7 @@ ANON_THROTTLE_RATE = os.environ.get("ANON_THROTTLE_RATE", "30/min")
 # 本地媒体扩展名（逗号分隔，含点）
 LOCAL_IMAGE_EXTS = [
     e.strip()
-    for e in os.environ.get("LOCAL_IMAGE_EXTS", ".jpg,.jpeg,.png,.webp,.gif").split(",")
+    for e in os.environ.get("LOCAL_IMAGE_EXTS", ".jpg,.jpeg,.png,.webp,.gif,.avif").split(",")
     if e.strip()
 ]
 LOCAL_VIDEO_EXTS = [

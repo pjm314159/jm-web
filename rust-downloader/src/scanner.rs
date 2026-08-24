@@ -4,7 +4,7 @@ use redis::AsyncCommands;
 use serde::Serialize;
 use tracing::{info, warn};
 
-const IMAGE_EXTS: &[&str] = &[".jpg", ".jpeg", ".png", ".webp", ".gif"];
+const IMAGE_EXTS: &[&str] = &[".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"];
 const VIDEO_EXTS: &[&str] = &[
     ".mp4", ".webm", ".mov", ".mkv", ".avi", ".flv", ".wmv", ".m4v", ".mpg", ".mpeg",
 ];
@@ -335,5 +335,13 @@ mod tests {
             "%E6%B5%8B%E8%AF%95%20%E7%9B%B8%E5%86%8C%5BA%5D"
         );
         assert_eq!(url_encode_segment("a-b_c.d~e"), "a-b_c.d~e");
+    }
+
+    #[test]
+    fn test_is_media_file_avif() {
+        assert!(is_media_file(Path::new("cover.avif"), IMAGE_EXTS));
+        assert!(is_media_file(Path::new("cover.AVIF"), IMAGE_EXTS));
+        assert!(is_media_file(Path::new("cover.gif"), IMAGE_EXTS));
+        assert!(!is_media_file(Path::new("cover.txt"), IMAGE_EXTS));
     }
 }

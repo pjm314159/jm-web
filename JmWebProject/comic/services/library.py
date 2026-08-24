@@ -19,7 +19,7 @@ from . import jm_sync
 
 logger = logging.getLogger(__name__)
 
-IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif")
 IMAGES_PER_PAGE = settings.IMAGES_PER_PAGE
 
 

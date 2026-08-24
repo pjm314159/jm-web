@@ -117,7 +117,7 @@ export default function HomePage() {
           className="lg:col-span-7"
           to="/search"
           accent={ACCENTS.indigo}
-          image="/cards/search.png"
+          image="/cards/search.avif"
           label="Search"
           title="在线搜索"
           desc="搜索 JM 站源，命中后可直接添加下载任务，无需离开当前页面。"
@@ -126,7 +126,7 @@ export default function HomePage() {
           className="lg:col-span-5"
           to="/crawl"
           accent={ACCENTS.purple}
-          image="/cards/crawl.png"
+          image="/cards/crawl.avif"
           label="Crawl"
           title="爬虫中心"
           desc="输入 ID 或链接，开始新的下载任务。"
@@ -144,7 +144,7 @@ export default function HomePage() {
           className="lg:col-span-7"
           to="/local"
           accent={ACCENTS.pink}
-          image="/cards/local.jpg"
+          image="/cards/local.avif"
           label="Local"
           title="本地资源"
           desc="浏览服务器上的本地文件夹，图片与视频分类查看，随点随看。"
