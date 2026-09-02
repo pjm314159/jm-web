@@ -1,129 +1,131 @@
 # JM-Website
 
-基于 [jmcomic](https://github.com/hect0x7/JMComic-Crawler-Python) 开发的个人漫画管理网页：
-在线搜索与阅读、一键下载入库、本地媒体浏览，前后端分离，Rust 微服务承担下载与图片反混淆。
+[中文文档](./README_zh.md)
 
-## 功能特性
+A personal comic management web app built on [jmcomic](https://github.com/hect0x7/JMComic-Crawler-Python):
+online search & reading, one-click download to library, local media browsing. Front-end and back-end separated, with a Rust microservice handling downloads and image deobfuscation.
 
-- **在线搜索与筛选**：关键词 / 标签 / 作者搜索 + 排行榜浏览（月 / 周 / 日排行），支持排序、时间、分类、子分类筛选，关键词留空时按筛选条件浏览全部作品
-- **在线阅读**：专辑详情、章节列表、评论区（等级 / 头像 / 奖牌展示），图片由前端 WASM 解码器反混淆显示（GIF 原始渲染）
-- **一键下载**：提交后由 Rust 微服务并发下载 + 反混淆 + 写盘，支持断点续传、抖动重试、进度回调；GIF 原样保存；失败章节可单章重试或一键重下
-- **本地漫画库**：已下载专辑管理（列表 / 详情 / 删除）、远端更新检测、本地阅读器、评论区（默认收起，点击展开）
-- **本地媒体浏览**：图片 / 视频文件夹浏览，视频在线播放（Nginx Range 直出 + Django 鉴权后的 X-Accel）
-- **账号体系**：注册门控密钥 + JWT 登录（access / refresh 7 天，旋转 + 拉黑）
-- **个人资料**：关联 JM 账号（密码强加密存储）并同步收藏夹，展示等级 / 头像 / 奖牌等信息
+## Features
 
-## 技术栈
+- **Online Search & Filtering**: keyword / tag / author search + leaderboard browsing (monthly / weekly / daily), supports sorting, time range, category, and subcategory filters; leave keyword blank to browse all works by filters alone
+- **Online Reading**: album details, chapter list, comment section (level / avatar / badge display), images deobfuscated by frontend WASM decoder (GIF rendered as-is)
+- **One-Click Download**: submitted to Rust microservice for concurrent download + deobfuscation + disk write, supports resume, jitter retry, and progress callback; GIF saved as-is; failed chapters can be retried individually or all at once
+- **Local Comic Library**: downloaded album management (list / details / delete), remote update detection, local reader, comment section (collapsed by default, click to expand)
+- **Local Media Browsing**: image / video folder browsing, online video playback (Nginx Range direct serving + Django-authenticated X-Accel)
+- **Account System**: registration gate key + JWT login (access / refresh 7 days, rotation + blacklist)
+- **Profile**: link JM account (strongly encrypted password storage) and sync favorites, display level / avatar / badges and more
 
-| 组件 | 技术 |
+## Tech Stack
+
+| Component | Technology |
 | --- | --- |
-| 后端 | Django 6 + Django REST Framework + Gunicorn |
-| 前端 | React 19 + TypeScript + Vite + Tailwind CSS + TanStack Query |
-| 下载服务 | Rust（axum + reqwest + tokio），替代 Celery |
-| 数据库 | SQLite（WAL 模式，PRAGMA 优化） |
-| 缓存 | Redis（Django 缓存 + 本地媒体扫描结果） |
-| 反向代理 | Nginx（静态托管 + 媒体直出 + API 反代） |
-| 依赖管理 | uv（Python）、pnpm（前端）、cargo（Rust） |
-| 部署 | Docker Compose（redis / web / rust_downloader / nginx） |
+| Backend | Django 6 + Django REST Framework + Gunicorn |
+| Frontend | React 19 + TypeScript + Vite + Tailwind CSS + TanStack Query |
+| Download Service | Rust (axum + reqwest + tokio), replacing Celery |
+| Database | SQLite (WAL mode, PRAGMA optimized) |
+| Cache | Redis (Django cache + local media scan results) |
+| Reverse Proxy | Nginx (static hosting + media direct serving + API proxy) |
+| Dependency Mgmt | uv (Python), pnpm (frontend), cargo (Rust) |
+| Deployment | Docker Compose (redis / web / rust_downloader / nginx) |
 
-## 架构
+## Architecture
 
 ```text
-浏览器（React SPA）
+Browser (React SPA)
       │
       ▼
 Nginx :8000
-  ├── /                  前端静态资源（Vite 构建产物）
-  ├── /api/              Django API（Gunicorn :8000）
-  ├── /media/images/     图片目录直出
-  ├── /media/videos/     视频直出（支持 Range / X-Accel）
-  └── /static/           Django 静态文件
+  ├── /                  Frontend static assets (Vite build output)
+  ├── /api/              Django API (Gunicorn :8000)
+  ├── /media/images/     Image directory direct serving
+  ├── /media/videos/     Video direct serving (Range / X-Accel support)
+  └── /static/           Django static files
 
-Django ── jmcomic ─────────► 禁漫站点（搜索 / 详情 / 评论 / 元数据）
-Rust   ── JM 图片 CDN ─────► 下载 + 反混淆 + 写盘
-Redis  ── Django 缓存 / 本地媒体扫描结果
-SQLite ── 专辑与章节元数据
+Django ── jmcomic ─────────► JMComic site (search / details / comments / metadata)
+Rust   ── JM image CDN ─────► Download + deobfuscation + disk write
+Redis  ── Django cache / local media scan results
+SQLite ── Album and chapter metadata
 ```
 
-关键设计：
+Key design:
 
-- Nginx 是唯一对外入口，`/` 返回 React 产物，`/api/` 反代 Django，媒体文件由 Nginx 直出。
-- Django 负责登录鉴权、jmcomic 元数据获取、任务编排、数据库读写；下载编排通过内部 HTTP 调用 Rust 微服务（容器内 `rust_downloader:3080`）。
-- Rust 微服务：并发图片下载、反混淆解码、断点续传、带抖动的重试、进度回调、失败清理、本地媒体目录定时扫描；任务队列为进程内存，Redis 用于 Django 缓存与本地媒体扫描结果。
+- Nginx is the single public entry point; `/` serves the React build, `/api/` reverse-proxies to Django, media files are served directly by Nginx.
+- Django handles authentication, jmcomic metadata fetching, task orchestration, and database read/write; download orchestration calls the Rust microservice via internal HTTP (`rust_downloader:3080` in containers).
+- Rust microservice: concurrent image download, deobfuscation decoding, resume, jitter retry, progress callback, failure cleanup, periodic local media directory scan; task queue is in-process memory; Redis is used for Django cache and local media scan results.
 
-## 快速开始（Docker）
+## Quick Start (Docker)
 
-### 1. 克隆项目
+### 1. Clone the project
 
 ```bash
 git clone https://github.com/pjm314159/jm-web.git
 cd jm-web
 ```
 
-### 2. 配置环境变量
+### 2. Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`，至少修改以下变量：
+Edit `.env` and modify at least the following variables:
 
-| 变量 | 说明 |
+| Variable | Description |
 | --- | --- |
-| `ALLOWED_HOST` | 访问域名或 IP（单个主域名；127.0.0.1 / localhost 自动允许） |
-| `DJANGO_SECRET_KEY` | Django 密钥，务必修改 |
-| `REGISTRATION_SECRET_KEY` | 注册门控密钥，注册时需输入 |
-| `CSRF_TRUSTED_ORIGINS` | CSRF 信任来源，逗号分隔 |
-| `CORS_ALLOWED_ORIGINS` | CORS 允许来源，逗号分隔 |
+| `ALLOWED_HOST` | Access domain or IP (single primary domain; 127.0.0.1 / localhost auto-allowed) |
+| `DJANGO_SECRET_KEY` | Django secret key, must be changed |
+| `REGISTRATION_SECRET_KEY` | Registration gate key, required when registering |
+| `CSRF_TRUSTED_ORIGINS` | CSRF trusted origins, comma-separated |
+| `CORS_ALLOWED_ORIGINS` | CORS allowed origins, comma-separated |
 
-可选：网络环境需要代理时设置 `PROXY=http://127.0.0.1:10808`（jmcomic 与 Rust 图片下载共用，留空则直连）。
+Optional: set `PROXY=http://127.0.0.1:10808` if a proxy is needed (shared by jmcomic and Rust image download; leave empty for direct connection).
 
-生成 Django Secret Key：
+Generate a Django Secret Key:
 
 ```bash
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 ```
 
-### 3. 启动服务
+### 3. Start services
 
 ```bash
 docker compose up -d --build
 ```
 
-首次启动会自动完成：
+First startup will automatically:
 
-- `web` 容器执行数据库迁移、静态文件收集；
-- 初始化本地媒体目录缓存（Redis）；
-- `nginx` 构建阶段自动完成前端打包。
+- Run database migrations and collect static files in the `web` container;
+- Initialize local media directory cache (Redis);
+- Build the frontend during the `nginx` build stage.
 
-### 4. 访问
+### 4. Access
 
-打开 `http://localhost:8000`，使用注册密钥创建账户后登录。
+Open `http://localhost:8000`, create an account with the registration key, then log in.
 
-## 常用命令
+## Common Commands
 
 ```bash
-# 查看日志
+# View logs
 docker compose logs -f web
 docker compose logs -f rust_downloader
 docker compose logs -f nginx
 
-# 代码更新后重建
+# Rebuild after code updates
 docker compose up -d --build
 
-# 停止 / 清空容器（不删数据卷）
+# Stop / remove containers (data volumes preserved)
 docker compose down
 
-# 进入容器执行管理命令
+# Execute management commands inside the container
 docker exec -it jm_django_web python manage.py createsuperuser
 docker exec -it jm_django_web python manage.py shell
 ```
 
-## 本地开发
+## Local Development
 
-前置要求：Python 3.12+、Node.js 22+、Rust 工具链、Redis。
+Prerequisites: Python 3.12+, Node.js 22+, Rust toolchain, Redis.
 
-### 后端
+### Backend
 
 ```bash
 uv sync --locked --group dev
@@ -131,7 +133,7 @@ uv run python JmWebProject/manage.py migrate
 uv run python JmWebProject/manage.py runserver
 ```
 
-### 前端
+### Frontend
 
 ```bash
 cd frontend
@@ -139,14 +141,14 @@ pnpm install
 pnpm dev
 ```
 
-### Rust 下载服务
+### Rust Download Service
 
 ```bash
 cd rust-downloader
 REDIS_URL=redis://127.0.0.1:6379/0 MEDIA_ROOT=../JmWebProject/media cargo run
 ```
 
-也支持 `config.toml` 配置文件（参考 `config.example.toml`），可用 `--config <path>` 或 `JM_CONFIG_FILE` 指定。
+Also supports `config.toml` (see `config.example.toml`), specify via `--config <path>` or `JM_CONFIG_FILE`.
 
 ### Redis
 
@@ -154,7 +156,7 @@ REDIS_URL=redis://127.0.0.1:6379/0 MEDIA_ROOT=../JmWebProject/media cargo run
 docker run -d -p 6379:6379 redis:alpine
 ```
 
-### 检查 / 测试
+### Lint / Test
 
 ```bash
 uv run ruff check JmWebProject/ tests/
@@ -163,44 +165,48 @@ cd frontend && pnpm build && pnpm lint
 cd rust-downloader && cargo fmt --check && cargo clippy -- -D warnings && cargo test
 ```
 
-## 配置说明
+## Configuration
 
-- 全部可配置参数（后端环境变量、Rust config.toml、前端 VITE_*、Nginx、Docker）见 [docs/config.md](docs/config.md)。
-- gunicorn 启动参数说明见根目录 [config.md](config.md)。
-- 环境变量示例：`.env.example`（后端）、`frontend/.env.example`（前端）。
+- All configurable parameters (backend env vars, Rust config.toml, frontend VITE_*, Nginx, Docker) are documented in [docs/config.md](docs/config.md).
+- Gunicorn startup parameters are documented in the root [config.md](config.md).
+- Environment variable examples: `.env.example` (backend), `frontend/.env.example` (frontend).
 
-## 项目结构
+## Project Structure
 
 ```text
 jm-web/
 ├── JmWebProject/
-│   ├── JmWebProject/     # Django 项目配置（settings / urls）
-│   ├── comic/            # 核心应用：models / views / serializers / services
-│   │   └── services/     # 业务层（search / crawl / library / local_media / jm_sync / jm_async）
-│   ├── user/             # 用户认证应用
-│   ├── media/            # 媒体文件（下载的图片 / 视频）
-│   └── db/               # SQLite 数据库
-├── frontend/             # React SPA（Vite + TypeScript）
-│   ├── src/pages/        # 页面
-│   ├── src/components/   # 组件（含阅读器 / WASM 解码）
-│   └── wasm/             # Rust → WASM 解码器源码
-├── rust-downloader/      # 下载微服务（axum + reqwest）
-├── nginx/                # Nginx 配置与前端构建镜像
-├── tests/                # 后端测试
-├── docs/                 # 设计 / 规划 / 配置文档
+│   ├── JmWebProject/     # Django project config (settings / urls)
+│   ├── comic/            # Core app: models / views / serializers / services
+│   │   └── services/     # Business layer (search / crawl / library / local_media / jm_sync / jm_async)
+│   ├── user/             # User authentication app
+│   ├── media/            # Media files (downloaded images / videos)
+│   └── db/               # SQLite database
+├── frontend/             # React SPA (Vite + TypeScript)
+│   ├── src/pages/        # Pages
+│   ├── src/components/   # Components (incl. reader / WASM decoder)
+│   └── wasm/             # Rust → WASM decoder source
+├── rust-downloader/      # Download microservice (axum + reqwest)
+├── nginx/                # Nginx config and frontend build image
+├── tests/                # Backend tests
+├── docs/                 # Design / planning / config docs
 ├── docker-compose.yml
 ├── Dockerfile
 ├── config.md
 └── .env.example
 ```
 
-## 注意事项
+## Notes
 
-- 本项目为个人使用开发，请勿直接部署为公开网站。
-- 媒体文件通过 bind mount 持久化，`docker compose down` 不会删除数据；`db_data` / `redis_data` 为命名数据卷。
-- 国内网络构建时：`web` 镜像默认使用清华 PyPI 镜像安装 uv（可用 `--build-arg PIP_INDEX_URL=...` 覆盖），Rust 镜像使用阿里云 apk 源与字节跳动 rsproxy 加速。
-- 封面路径已统一为专辑根目录；旧数据的 `cover_path` 不会自动迁移。
+- This project is developed for personal use; do not deploy it as a public website.
+- Media files are persisted via bind mounts; `docker compose down` will not delete data; `db_data` / `redis_data` are named volumes.
+- For builds in mainland China: the `web` image uses Tsinghua PyPI mirror for uv by default (override with `--build-arg PIP_INDEX_URL=...`), the Rust image uses Alibaba Cloud apk mirror and ByteDance rsproxy for acceleration.
+- Cover paths have been unified to the album root directory; old data `cover_path` will not be migrated automatically.
 
 ## Thanks
 
-感谢 [JMComic-Crawler-Python](https://github.com/hect0x7/JMComic-Crawler-Python) 的开发者。
+Thanks to the developers of [JMComic-Crawler-Python](https://github.com/hect0x7/JMComic-Crawler-Python).
+
+## License
+
+[GPL-3.0](./LICENSE)
