@@ -218,8 +218,19 @@ pub async fn execute_download(state: Arc<AppState>, req: DownloadRequest) {
                     let url = url.clone();
                     let tid2 = tid.clone();
                     let client = state_clone.client.clone();
+                    let token = state_clone.config.callback_token.clone();
                     tokio::spawn(async move {
-                        send_progress(&client, &url, &tid2, done, total, &[], "downloading").await;
+                        send_progress(
+                            &client,
+                            &url,
+                            &tid2,
+                            done,
+                            total,
+                            &[],
+                            "downloading",
+                            token.as_deref(),
+                        )
+                        .await;
                     });
                 }
             }
@@ -265,6 +276,7 @@ pub async fn execute_download(state: Arc<AppState>, req: DownloadRequest) {
             result.total,
             &result.failed,
             status_str,
+            state.config.callback_token.as_deref(),
         )
         .await;
     }

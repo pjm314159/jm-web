@@ -135,7 +135,7 @@ export default function HomePage() {
           className="lg:col-span-5"
           to="/library"
           accent={ACCENTS.sky}
-          image="/cards/library.jpg"
+          image="/cards/library.avif"
           label="Library"
           title="JM 藏书阁"
           desc="浏览已下载的本子和章节。"

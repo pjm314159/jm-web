@@ -22,7 +22,7 @@ jobs:
           --health-retries 3
 
     env:
-      DJANGO_SETTINGS_MODULE: JmWebProject.settings
+      DJANGO_SETTINGS_MODULE: JmWebProject.settings.test
       DJANGO_SECRET_KEY: ci-test-key-not-for-production
       REGISTRATION_SECRET_KEY: ci-test-registration-key
       ALLOWED_HOST: 127.0.0.1
@@ -48,10 +48,13 @@ jobs:
         run: mkdir -p JmWebProject/db
 
       - name: Ruff lint
-        run: uv run ruff check JmWebProject/
+        run: uv run ruff check JmWebProject/ tests/
 
       - name: Ruff format check
-        run: uv run ruff format --check JmWebProject/
+        run: uv run ruff format --check JmWebProject/ tests/
+
+      - name: Mypy type check
+        run: uv run mypy
 
       - name: Run tests
         run: uv run pytest

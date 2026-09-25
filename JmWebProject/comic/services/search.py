@@ -7,6 +7,7 @@
 import contextlib
 import datetime
 import logging
+from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
@@ -94,7 +95,7 @@ def search(
     results: list[dict] = []
     pagination: dict = {}
     try:
-        search_kwargs = {
+        search_kwargs: dict[str, Any] = {
             "order_by": order_by,
             "time": time,
             "category": category,

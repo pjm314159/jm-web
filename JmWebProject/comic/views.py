@@ -160,10 +160,18 @@ class CrawlTasksListView(APIView):
 class CrawlCallbackView(APIView):
     """C3：Rust 下载完成回调（内部接口，立即写入 DB）。"""
 
-    authentication_classes = []
-    permission_classes = []
+    authentication_classes: list[type] = []
+    permission_classes: list[type] = []
+    # 内部高频回调，豁免匿名限流（默认 30/min 会拒绝批量章节回调）
+    throttle_classes: list[type] = []
 
     def post(self, request):
+        # 共享密钥校验：生产必须配置 INTERNAL_CALLBACK_TOKEN；
+        # 未配置时不校验（仅限本地开发）。防止外网伪造回调篡改任务状态。
+        if settings.INTERNAL_CALLBACK_TOKEN:
+            token = request.headers.get("X-Internal-Token")
+            if token != settings.INTERNAL_CALLBACK_TOKEN:
+                return Response({"ok": False, "error": "forbidden"}, status=403)
         result = crawl_service.handle_rust_callback(request.data)
         return Response(result)
 

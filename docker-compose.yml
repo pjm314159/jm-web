@@ -15,6 +15,7 @@ services:
     container_name: jm_django_web
     volumes:
       - ./JmWebProject/media:/app/JmWebProject/media
+      - ./JmWebProject/static:/app/JmWebProject/static
       - db_data:/app/JmWebProject/db
     env_file:
       - .env
@@ -53,6 +54,8 @@ services:
       - CLEANUP_ON_FAILURE=true
       - TASK_RETENTION_SECS=3600
       - MAX_QUEUED_TASKS=200
+      # 回调接口共享密钥（与 .env 中 INTERNAL_CALLBACK_TOKEN 一致，留空则不校验）
+      - INTERNAL_CALLBACK_TOKEN=${INTERNAL_CALLBACK_TOKEN:-}
       - RUST_LOG=info
     depends_on:
       - redis

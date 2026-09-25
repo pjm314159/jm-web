@@ -73,6 +73,11 @@ apiClient.interceptors.response.use(
       const { data } = await axios.post(`${API_BASE}/auth/token/refresh/`, { refresh })
       const newAccess: string = data.access
       tokenStorage.setAccess(newAccess)
+      // 旋转机制：响应携带新 refresh，旧 refresh 已被服务端拉黑，必须保存新值，
+      // 否则下次刷新会 401 导致被强制登出
+      if (data.refresh) {
+        tokenStorage.setRefresh(data.refresh)
+      }
       flushQueue(newAccess)
       original.headers.Authorization = `Bearer ${newAccess}`
       return apiClient(original)

@@ -2,9 +2,9 @@
 FROM python:3.12-slim
 
 # 安装 uv
-# 默认走清华镜像
-# 而 pip 会校验索引提供的哈希，导致构建失败；可通过 --build-arg PIP_INDEX_URL 覆盖。
-ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# 默认走阿里云镜像（清华镜像曾对该 wheel 返回 403）；
+# 可通过 --build-arg PIP_INDEX_URL 覆盖为其他源（如官方 https://pypi.org/simple）
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 RUN pip install --no-cache-dir --index-url "$PIP_INDEX_URL" uv
 
 # 设置工作目录
@@ -23,6 +23,8 @@ COPY . /app/
 
 # 将虚拟环境加入 PATH（gunicorn / python 均走 .venv）
 ENV PATH="/app/.venv/bin:$PATH"
+# 容器内固定使用生产配置（本地开发缺省为 settings.dev）
+ENV DJANGO_SETTINGS_MODULE=JmWebProject.settings.prod
 
 # 切换到 Django 项目所在目录（manage.py 所在位置）
 WORKDIR /app/JmWebProject

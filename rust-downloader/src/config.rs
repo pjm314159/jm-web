@@ -25,6 +25,8 @@ pub struct Config {
     pub decode_concurrency: usize,
     /// 图片下载代理（可选；为空/未配置则直连）
     pub proxy: Option<String>,
+    /// Django 回调接口共享密钥（可选；配置后回调附带 X-Internal-Token 头）
+    pub callback_token: Option<String>,
 }
 
 /// config.toml 文件结构（所有字段可选，缺省使用代码默认值）
@@ -76,6 +78,7 @@ struct TaskConfig {
     cleanup_on_failure: Option<bool>,
     retention_secs: Option<u64>,
     max_queued: Option<usize>,
+    callback_token: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -120,6 +123,7 @@ impl Config {
             max_queued_tasks: file.task.max_queued.unwrap_or(200),
             decode_concurrency: file.download.decode_concurrency.unwrap_or(10),
             proxy: file.download.proxy.clone(),
+            callback_token: file.task.callback_token.clone(),
         };
 
         // 环境变量覆盖（值无效时回退到文件/默认值）
@@ -176,6 +180,10 @@ impl Config {
             } else {
                 Some(proxy.to_string())
             };
+        }
+        if let Ok(token) = env::var("INTERNAL_CALLBACK_TOKEN") {
+            let token = token.trim().to_string();
+            config.callback_token = if token.is_empty() { None } else { Some(token) };
         }
 
         config

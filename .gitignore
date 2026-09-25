@@ -5,7 +5,6 @@ __pycache__/
 
 # uv / 虚拟环境
 .venv/
-.python-version
 
 # 测试 /  lint 缓存
 .pytest_cache/
@@ -22,6 +21,9 @@ JmWebProject/logs/
 db.sqlite3
 JmWebProject/db/
 JmWebProject/staticfiles/
+# collectstatic 产物（STATIC_ROOT=static，favicon.ico 为源资源保留入库）
+JmWebProject/static/admin/
+JmWebProject/static/rest_framework/
 
 # Media (大文件，不提交)
 JmWebProject/media/images/jmcomic/

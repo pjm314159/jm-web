@@ -18,9 +18,17 @@ export const tokenStorage = {
     if (username) localStorage.setItem(USER_KEY, username)
   },
 
-  /** 刷新 token 后仅更新 access */
+  /** 刷新成功后更新 access */
   setAccess: (access: string): void => {
     localStorage.setItem(ACCESS_KEY, access)
+  },
+
+  /**
+   * 刷新成功后更新 refresh token。
+   * 服务端启用旋转+拉黑：刷新返回新 refresh，旧 refresh 立即失效，必须保存新值。
+   */
+  setRefresh: (refresh: string): void => {
+    localStorage.setItem(REFRESH_KEY, refresh)
   },
 
   /** 登出时清空 */

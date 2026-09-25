@@ -342,7 +342,7 @@ LOGGING = {
 
 ```toml
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "JmWebProject.settings"
+DJANGO_SETTINGS_MODULE = "JmWebProject.settings.test"
 python_files = ["test_*.py", "*_test.py"]
 pythonpath = ["JmWebProject"]
 addopts = "-q --reuse-db --cov=comic --cov=user --cov-report=term-missing"

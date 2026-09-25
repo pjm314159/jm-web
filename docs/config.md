@@ -85,11 +85,11 @@
 
 | 参数 | 类型 | 默认值 | 必填 | 说明 |
 |------|------|--------|------|------|
-| `DJANGO_SECRET_KEY` | string | 内置不安全值 | 生产必填 | Session/CSRF/JWT 签名密钥 |
+| `DJANGO_SECRET_KEY` | string | — | **必填**（缺失启动报错） | Session/CSRF/JWT 签名密钥 |
 | `REGISTRATION_SECRET_KEY` | string | — | **是** | 注册邀请码，缺失则启动报错 |
 | `DJANGO_DEBUG` | bool | `false` | 否 | 调试模式 |
 | `ALLOWED_HOST` | string | — | 生产必填 | 允许的主域名（自动附带 127.0.0.1/localhost/web） |
-| `DJANGO_SETTINGS_MODULE` | string | `JmWebProject.settings` | 否 | Django 配置模块 |
+| `DJANGO_SETTINGS_MODULE` | string | 本地 `settings.dev` / 镜像内 `settings.prod` | 否 | Django 配置模块（settings/ 包按环境拆分） |
 
 ### 2.2 安全
 

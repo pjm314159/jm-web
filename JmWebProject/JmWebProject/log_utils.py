@@ -26,7 +26,7 @@ class CompressedTimedRotatingFileHandler(TimedRotatingFileHandler):
         """执行轮转：关闭当前流 → 重命名 → 压缩 → 清理过期文件。"""
         if self.stream:
             self.stream.close()
-            self.stream = None  # type: ignore[assignment]
+            self.stream = None
 
         # 计算轮转目标文件名（带日期后缀）
         current_time = int(time.time())
