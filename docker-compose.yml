@@ -35,6 +35,9 @@ services:
     build:
       context: ./rust-downloader
       dockerfile: Dockerfile
+      args:
+        # 国内网络本地构建设 true 启用 rsproxy 镜像；CI/海外保持 false
+        USE_CRATES_MIRROR: ${USE_CRATES_MIRROR:-false}
     image: pjm314159/jm-rust-downloader:latest
     container_name: jm_rust_downloader
     volumes:

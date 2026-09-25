@@ -5,11 +5,17 @@ RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories
     && apk add --no-cache musl-dev pkgconfig
 
 WORKDIR /app
-# 使用字节跳动 rsproxy 镜像加速 crates.io
-COPY .cargo/config.toml /usr/local/cargo/config.toml
+# crates 源可选镜像加速：
+# - 海外环境（如 GitHub Actions）保持默认 false，走官方 crates.io（rsproxy 在海外反而超时）
+# - 国内网络构建时传 --build-arg USE_CRATES_MIRROR=true 启用 rsproxy
+ARG USE_CRATES_MIRROR=false
+COPY .cargo /cargo-mirror/
 COPY Cargo.toml Cargo.lock* ./
 COPY src/ src/
-RUN cargo build --release
+RUN if [ "$USE_CRATES_MIRROR" = "true" ]; then \
+        cp /cargo-mirror/config.toml /usr/local/cargo/config.toml; \
+    fi \
+    && cargo build --release
 
 # ---- Runtime stage ----
 FROM alpine:3.21
