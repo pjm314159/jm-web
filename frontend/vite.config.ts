@@ -1,6 +1,6 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -18,5 +18,11 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    // jsdom 提供浏览器 DOM / localStorage；globals 开启后 RTL 自动清理
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './src/test/setup.ts',
   },
 })
