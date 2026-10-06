@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 
+import { emitForceLogout } from '../lib/authEvents'
 import { tokenStorage } from '../lib/tokenStorage'
 
 /** API 基础路径（部署到子路径/独立域名时用 VITE_API_BASE 覆盖） */
@@ -42,13 +43,21 @@ apiClient.interceptors.response.use(
     if (!original) return Promise.reject(error)
 
     const status = error.response?.status
-    if (status !== 401 || original._retry || isAuthEndpoint(original.url)) {
+    if (status !== 401 || isAuthEndpoint(original.url)) {
+      return Promise.reject(error)
+    }
+
+    // 刷新后仍 401：凭证彻底失效，强制登出（由 RequireAuth 跳转登录页）
+    if (original._retry) {
+      tokenStorage.clear()
+      emitForceLogout()
       return Promise.reject(error)
     }
 
     const refresh = tokenStorage.getRefresh()
     if (!refresh) {
       tokenStorage.clear()
+      emitForceLogout()
       return Promise.reject(error)
     }
 
@@ -84,6 +93,8 @@ apiClient.interceptors.response.use(
     } catch (refreshError) {
       flushQueue(null)
       tokenStorage.clear()
+      // 刷新失败 = 登录已过期：同步全局认证状态，触发自动跳转登录页
+      emitForceLogout()
       return Promise.reject(refreshError)
     } finally {
       isRefreshing = false

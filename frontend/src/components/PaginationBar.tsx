@@ -107,6 +107,12 @@ const PAGINATION_STARS: { className: string; delay: string }[] = [
   { className: 'left-1/2 top-0.5 h-2.5 w-2.5 text-indigo-300/60', delay: '0.6s' },
 ]
 
+/** 翻页后回到列表顶部：分页栏在页面底部，翻页后若停留在原位置会看到新列表的末尾 */
+function goToPageAndScrollTop(go: () => void) {
+  go()
+  window.scrollTo({ top: 0 })
+}
+
 export default function PaginationBar({
   pagination,
   onPrev,
@@ -126,6 +132,7 @@ export default function PaginationBar({
     const clamped = Math.min(Math.max(page, 1), pagination.page_count)
     onJump(clamped)
     setJumpValue('')
+    window.scrollTo({ top: 0 })
   }
 
   // 容器内部按钮：不再单独卡片化，悬停时浮现浅色底
@@ -142,7 +149,7 @@ export default function PaginationBar({
       <div className="relative z-10 flex flex-wrap items-center justify-center gap-2 px-4 py-3">
         <button
           type="button"
-          onClick={onPrev}
+          onClick={() => goToPageAndScrollTop(onPrev)}
           disabled={!pagination.has_prev}
           aria-label="上一页"
           className={innerBtn}
@@ -182,7 +189,7 @@ export default function PaginationBar({
 
         <button
           type="button"
-          onClick={onNext}
+          onClick={() => goToPageAndScrollTop(onNext)}
           disabled={!pagination.has_next}
           aria-label="下一页"
           className={innerBtn}

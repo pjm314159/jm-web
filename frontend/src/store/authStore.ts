@@ -2,6 +2,7 @@ import { create } from 'zustand'
 
 import * as authApi from '../api/auth'
 import type { RegisterPayload } from '../api/auth'
+import { onForceLogout } from '../lib/authEvents'
 import { tokenStorage } from '../lib/tokenStorage'
 
 interface AuthState {
@@ -45,3 +46,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ username: null, isAuthenticated: false })
   },
 }))
+
+// 登录过期（refresh 失效）时由 axios 拦截器发出强制登出事件：
+// 同步 store 状态，使 RequireAuth 自动跳转登录页
+onForceLogout(() => useAuthStore.setState({ username: null, isAuthenticated: false }))
