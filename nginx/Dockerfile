@@ -12,7 +12,8 @@ COPY frontend/ ./
 RUN pnpm build
 
 # ─── 最终 Nginx 镜像 ───
-FROM nginx:latest
+# 固定版本，避免每次构建解析 latest 触发重新拉取
+FROM nginx:1.30-alpine
 
 # 复制前端构建产物到 Nginx 默认静态目录
 COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html
